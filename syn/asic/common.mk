@@ -24,10 +24,10 @@ export TARGET_LIB     ?= /research/AAA/phys_ip_library/arm/tsmc/cln65lp/sc12_bas
 
 # Compiled SRAM macro library (rf_08k — 2048x32, TSMC 65nm)
 export MEM_PATH       ?= /research/precompiled_mems/TSMC65/rf_08k
-export MEM_DB_SS      ?= $(MEM_PATH)/rf_08k_ss_1p08v_1p08v_125c.db
+export MEM_LIB_SS     ?= $(MEM_PATH)/rf_08k_ss_1p08v_1p08v_125c.lib
 
 # Link libraries — target + any additional macro/IP libs
-export LINK_LIBS      ?= $(TARGET_LIB) $(MEM_DB_SS)
+export LINK_LIBS      ?= $(TARGET_LIB)
 
 # TF/Milkyway — physical reference for floorplan estimation (TSMC 65nm, 1p9m_6x2z)
 export PHYS_IP_PATH   ?= /research/AAA/phys_ip_library/arm/tsmc/cln65lp
