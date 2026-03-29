@@ -1,11 +1,12 @@
 //-----------------------------------------------------------------------------
 // ethmac_ahb.v
 //-----------------------------------------------------------------------------
-// Wrapper for OpenCores Ethernet MAC (eth_top) with AHB master and APB slave
+// Wrapper for OpenCores Ethernet MAC (eth_top) with AHB master and AHB slave
 // interfaces, replacing the original WISHBONE interfaces.
 //
-// - APB slave:  Register access (replaces WISHBONE slave)
-// - AHB master: DMA transfers  (replaces WISHBONE master)
+// Uses ahb3lite_wb_bridge IP for protocol conversion:
+// - AHB slave  -> WB slave  (register access) via ahb3lite_to_wb
+// - WB master  -> AHB master (DMA transfers)  via wb_to_ahb3lite
 //-----------------------------------------------------------------------------
 
 module ethmac_ahb (
@@ -19,21 +20,26 @@ module ethmac_ahb (
   output wire  [2:0] HSIZE,
   output wire  [2:0] HBURST,
   output wire  [3:0] HPROT,
+  output wire        HMASTLOCK,
   output wire        HWRITE,
   output wire [31:0] HWDATA,
   input  wire [31:0] HRDATA,
   input  wire        HREADY,
-  input  wire  [1:0] HRESP,
+  input  wire        HRESP,
 
-  // APB Slave Interface (Register Access)
-  input  wire        PSEL,
-  input  wire        PENABLE,
-  input  wire        PWRITE,
-  input  wire [11:2] PADDR,
-  input  wire [31:0] PWDATA,
-  output wire [31:0] PRDATA,
-  output wire        PREADY,
-  output wire        PSLVERR,
+  // AHB Slave Interface (Register Access)
+  input  wire        HSEL_S,
+  input  wire [31:0] HADDR_S,
+  input  wire  [1:0] HTRANS_S,
+  input  wire  [2:0] HSIZE_S,
+  input  wire  [2:0] HBURST_S,
+  input  wire  [3:0] HPROT_S,
+  input  wire        HWRITE_S,
+  input  wire [31:0] HWDATA_S,
+  input  wire        HREADY_S,
+  output wire [31:0] HRDATA_S,
+  output wire        HREADYOUT_S,
+  output wire        HRESP_S,
 
   // MII Transmit
   input  wire        mtx_clk_pad_i,
@@ -62,19 +68,20 @@ module ethmac_ahb (
 );
 
   //---------------------------------------------------
-  // Internal wires: WISHBONE slave (APB <-> eth_top)
+  // Internal wires: WISHBONE slave (bridge <-> eth_top)
   //---------------------------------------------------
+  wire [31:0] wb_adr_i;
+  wire [31:0] wb_dat_i;
+  wire  [3:0] wb_sel_i;
+  wire        wb_we_i;
   wire        wb_cyc_i;
   wire        wb_stb_i;
-  wire        wb_we_i;
-  wire [31:0] wb_dat_i;
   wire [31:0] wb_dat_o;
   wire        wb_ack_o;
   wire        wb_err_o;
-  wire  [3:0] wb_sel_i;
 
   //---------------------------------------------------
-  // Internal wires: WISHBONE master (eth_top <-> AHB)
+  // Internal wires: WISHBONE master (eth_top <-> bridge)
   //---------------------------------------------------
   wire [31:0] m_wb_adr_o;
   wire  [3:0] m_wb_sel_o;
@@ -86,35 +93,76 @@ module ethmac_ahb (
   wire        m_wb_ack_i;
   wire        m_wb_err_i;
 
-  //---------------------------------------------------
-  // APB Slave to WISHBONE Slave Bridge
-  //---------------------------------------------------
-  // TODO: Implement APB to WISHBONE bridge logic
-  assign wb_cyc_i = PSEL;
-  assign wb_stb_i = PSEL & PENABLE;
-  assign wb_we_i  = PWRITE;
-  assign wb_dat_i = PWDATA;
-  assign wb_sel_i = 4'hF;
-
-  assign PRDATA   = wb_dat_o;
-  assign PREADY   = wb_ack_o;
-  assign PSLVERR  = wb_err_o;
+  wire  [2:0] m_wb_cti_o;
+  wire  [1:0] m_wb_bte_o;
 
   //---------------------------------------------------
-  // WISHBONE Master to AHB Master Bridge
+  // AHB Slave to WISHBONE Slave Bridge (Register Access)
   //---------------------------------------------------
-  // TODO: Implement WISHBONE to AHB bridge logic
-  assign HADDR    = m_wb_adr_o;
-  assign HTRANS   = 2'b00;
-  assign HSIZE    = 3'b010;
-  assign HBURST   = 3'b000;
-  assign HPROT    = 4'b0011;
-  assign HWRITE   = m_wb_we_o;
-  assign HWDATA   = m_wb_dat_o;
+  ahb3lite_to_wb u_ahb3lite_to_wb (
+    .clk_i          (HCLK),
+    .rst_n_i        (HRESETn),
 
-  assign m_wb_dat_i = HRDATA;
-  assign m_wb_ack_i = HREADY;
-  assign m_wb_err_i = HRESP[0];
+    // AHB slave side
+    .sHADDR         (HADDR_S),
+    .sHWDATA        (HWDATA_S),
+    .sHWRITE        (HWRITE_S),
+    .sHREADYOUT     (HREADYOUT_S),
+    .sHSIZE         (HSIZE_S),
+    .sHBURST        (HBURST_S),
+    .sHSEL          (HSEL_S),
+    .sHTRANS        (HTRANS_S),
+    .sHRDATA        (HRDATA_S),
+    .sHRESP         (HRESP_S),
+    .sHREADY        (HREADY_S),
+    .sHPROT         (HPROT_S),
+
+    // WISHBONE slave side
+    .to_wb_dat_i    (wb_dat_i),
+    .to_wb_adr_i    (wb_adr_i),
+    .to_wb_sel_i    (wb_sel_i),
+    .to_wb_we_i     (wb_we_i),
+    .to_wb_cyc_i    (wb_cyc_i),
+    .to_wb_stb_i    (wb_stb_i),
+    .from_wb_dat_o  (wb_dat_o),
+    .from_wb_ack_o  (wb_ack_o),
+    .from_wb_err_o  (wb_err_o)
+  );
+
+  //---------------------------------------------------
+  // WISHBONE Master to AHB Master Bridge (DMA)
+  //---------------------------------------------------
+  wb_to_ahb3lite u_wb_to_ahb3lite (
+    .clk_i              (HCLK),
+    .rst_n_i            (HRESETn),
+
+    // WISHBONE master side
+    .from_m_wb_adr_o    (m_wb_adr_o),
+    .from_m_wb_sel_o    (m_wb_sel_o),
+    .from_m_wb_we_o     (m_wb_we_o),
+    .from_m_wb_dat_o    (m_wb_dat_o),
+    .from_m_wb_cyc_o    (m_wb_cyc_o),
+    .from_m_wb_stb_o    (m_wb_stb_o),
+    .to_m_wb_ack_i      (m_wb_ack_i),
+    .to_m_wb_err_i      (m_wb_err_i),
+    .to_m_wb_dat_i      (m_wb_dat_i),
+    .from_m_wb_cti_o    (m_wb_cti_o),
+    .from_m_wb_bte_o    (m_wb_bte_o),
+
+    // AHB master side
+    .mHSEL              (HMASTLOCK),
+    .mHSIZE             (HSIZE),
+    .mHRDATA            (HRDATA),
+    .mHRESP             (HRESP),
+    .mHREADY            (HREADY),
+    .mHREADYOUT         (),
+    .mHWRITE            (HWRITE),
+    .mHBURST            (HBURST),
+    .mHADDR             (HADDR),
+    .mHTRANS            (HTRANS),
+    .mHWDATA            (HWDATA),
+    .mHPROT             (HPROT)
+  );
 
   //---------------------------------------------------
   // Ethernet MAC Core Instance
@@ -127,7 +175,7 @@ module ethmac_ahb (
     .wb_dat_o       (wb_dat_o),
 
     // WISHBONE slave
-    .wb_adr_i       (PADDR),
+    .wb_adr_i       (wb_adr_i[11:2]),
     .wb_sel_i       (wb_sel_i),
     .wb_we_i        (wb_we_i),
     .wb_cyc_i       (wb_cyc_i),
@@ -145,6 +193,11 @@ module ethmac_ahb (
     .m_wb_stb_o     (m_wb_stb_o),
     .m_wb_ack_i     (m_wb_ack_i),
     .m_wb_err_i     (m_wb_err_i),
+
+`ifdef ETH_WISHBONE_B3
+    .m_wb_cti_o     (m_wb_cti_o),
+    .m_wb_bte_o     (m_wb_bte_o),
+`endif
 
     // MII Transmit
     .mtx_clk_pad_i  (mtx_clk_pad_i),

@@ -1,0 +1,3 @@
+[submodule "src/rtl/ahb3lite_wb_bridge"]
+	path = src/rtl/ahb3lite_wb_bridge
+	url = https://github.com/vfinotti/ahb3lite_wb_bridge.git

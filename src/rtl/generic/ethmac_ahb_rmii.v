@@ -2,7 +2,7 @@
 // ethmac_ahb_rmii.v
 //-----------------------------------------------------------------------------
 // Top-level wrapper that combines ethmac_ahb with an RMII-to-MII adapter.
-// Exposes AHB master, APB slave, MIIM, and RMII interfaces externally.
+// Exposes AHB master, AHB slave, MIIM, and RMII interfaces externally.
 //
 // RMII (Reduced MII) uses:
 //   - A single 50 MHz reference clock (instead of separate TX/RX clocks)
@@ -21,21 +21,26 @@ module ethmac_ahb_rmii (
   output wire  [2:0] HSIZE,
   output wire  [2:0] HBURST,
   output wire  [3:0] HPROT,
+  output wire        HMASTLOCK,
   output wire        HWRITE,
   output wire [31:0] HWDATA,
   input  wire [31:0] HRDATA,
   input  wire        HREADY,
-  input  wire  [1:0] HRESP,
+  input  wire        HRESP,
 
-  // APB Slave Interface (Register Access)
-  input  wire        PSEL,
-  input  wire        PENABLE,
-  input  wire        PWRITE,
-  input  wire [11:2] PADDR,
-  input  wire [31:0] PWDATA,
-  output wire [31:0] PRDATA,
-  output wire        PREADY,
-  output wire        PSLVERR,
+  // AHB Slave Interface (Register Access)
+  input  wire        HSEL_S,
+  input  wire [31:0] HADDR_S,
+  input  wire  [1:0] HTRANS_S,
+  input  wire  [2:0] HSIZE_S,
+  input  wire  [2:0] HBURST_S,
+  input  wire  [3:0] HPROT_S,
+  input  wire        HWRITE_S,
+  input  wire [31:0] HWDATA_S,
+  input  wire        HREADY_S,
+  output wire [31:0] HRDATA_S,
+  output wire        HREADYOUT_S,
+  output wire        HRESP_S,
 
   // RMII Interface
   input  wire        rmii_ref_clk,    // 50 MHz reference clock
@@ -99,7 +104,7 @@ module ethmac_ahb_rmii (
   );
 
   //---------------------------------------------------
-  // Ethernet MAC with AHB/APB interfaces
+  // Ethernet MAC with AHB interfaces
   //---------------------------------------------------
   ethmac_ahb u_ethmac_ahb (
     // Clock and Reset
@@ -112,21 +117,26 @@ module ethmac_ahb_rmii (
     .HSIZE          (HSIZE),
     .HBURST         (HBURST),
     .HPROT          (HPROT),
+    .HMASTLOCK      (HMASTLOCK),
     .HWRITE         (HWRITE),
     .HWDATA         (HWDATA),
     .HRDATA         (HRDATA),
     .HREADY         (HREADY),
     .HRESP          (HRESP),
 
-    // APB Slave
-    .PSEL           (PSEL),
-    .PENABLE        (PENABLE),
-    .PWRITE         (PWRITE),
-    .PADDR          (PADDR),
-    .PWDATA         (PWDATA),
-    .PRDATA         (PRDATA),
-    .PREADY         (PREADY),
-    .PSLVERR        (PSLVERR),
+    // AHB Slave
+    .HSEL_S         (HSEL_S),
+    .HADDR_S        (HADDR_S),
+    .HTRANS_S       (HTRANS_S),
+    .HSIZE_S        (HSIZE_S),
+    .HBURST_S       (HBURST_S),
+    .HPROT_S        (HPROT_S),
+    .HWRITE_S       (HWRITE_S),
+    .HWDATA_S       (HWDATA_S),
+    .HREADY_S       (HREADY_S),
+    .HRDATA_S       (HRDATA_S),
+    .HREADYOUT_S    (HREADYOUT_S),
+    .HRESP_S        (HRESP_S),
 
     // MII Transmit
     .mtx_clk_pad_i  (mtx_clk),
