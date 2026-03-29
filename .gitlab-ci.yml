@@ -19,6 +19,7 @@ variables:
     - vcs
   before_script:
     - source set_env.sh
+    - pip3 install --user -r cocotb/requirements.txt
     - which vcs
     - python3 -c "import cocotb; print('cocotb', cocotb.__version__)"
   artifacts:
