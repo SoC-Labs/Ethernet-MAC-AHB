@@ -30,6 +30,18 @@ variables:
     expire_in: 30 days
 
 # ---------------------------------------------------------------------------
+# Checkout — initialise submodules and verify external IP path
+# ---------------------------------------------------------------------------
+checkout:
+  stage: build
+  tags:
+    - vcs
+  script:
+    - git submodule update --init --recursive
+    - test -d "$ETHMAC_IP_DIR" || { echo "ERROR: ETHMAC_IP_DIR not found at $ETHMAC_IP_DIR"; exit 1; }
+    - echo "Submodule src/rtl/ahb3lite_wb_bridge and ETHMAC_IP_DIR are present"
+
+# ---------------------------------------------------------------------------
 # Layer 1 — AHB-to-WB bridge (7 tests)
 # ---------------------------------------------------------------------------
 ahb3lite_to_wb:
