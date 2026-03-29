@@ -83,11 +83,11 @@ module test_top;
 
     // AHB3-Lite slave side (VIP master drives these)
     .sHADDR           (ahb_if.master_if[0].haddr),
-    .sHWDATA          (ahb_if.master_if[0].hwdata),
+    .sHWDATA          (ahb_if.master_if[0].hwdata[31:0]),
     .sHWRITE          (ahb_if.master_if[0].hwrite),
     .sHSIZE           (ahb_if.master_if[0].hsize),
     .sHBURST          (ahb_if.master_if[0].hburst),
-    .sHSEL            (ahb_if.master_if[0].hsel),
+    .sHSEL            (1'b1),
     .sHTRANS          (ahb_if.master_if[0].htrans),
     .sHREADY          (ahb_if.master_if[0].hready),
     .sHPROT           (ahb_if.master_if[0].hprot),
@@ -130,26 +130,25 @@ module test_top;
   assign ahb_if.slave_if[0].hprot     = ahb_if.master_if[0].hprot;
   assign ahb_if.slave_if[0].hwrite    = ahb_if.master_if[0].hwrite;
   assign ahb_if.slave_if[0].hwdata    = ahb_if.master_if[0].hwdata;
-  assign ahb_if.slave_if[0].hsel      = 1'b1;
   assign ahb_if.slave_if[0].hmaster   = 4'h0;
   assign ahb_if.slave_if[0].hmastlock = 1'b0;
 
-  // DUT HREADYOUT feeds back as slave_if hready
-  assign ahb_if.slave_if[0].hready    = dut_hreadyout;
+  // DUT HREADYOUT feeds back as hready/hready_in
   assign ahb_if.slave_if[0].hready_in = dut_hreadyout;
 
   // Force DUT slave responses onto master_if for proper VIP master handshaking
+  // and onto slave_if for passive slave monitor.
+  // Use force to override VIP clocking block output drivers.
   initial begin
     force ahb_if.master_if[0].hready = dut_hreadyout;
     force ahb_if.master_if[0].hresp  = {1'b0, dut_hresp};
     force ahb_if.master_if[0].hrdata = dut_hrdata;
     force ahb_if.master_if[0].hgrant = 1'b1;  // AHB-Lite: always granted
-  end
 
-  // Force slave_if response signals for passive slave monitor
-  initial begin
-    force ahb_if.slave_if[0].hrdata = dut_hrdata;
-    force ahb_if.slave_if[0].hresp  = {1'b0, dut_hresp};
+    force ahb_if.slave_if[0].hsel    = 1'b1;
+    force ahb_if.slave_if[0].hready  = dut_hreadyout;
+    force ahb_if.slave_if[0].hrdata  = dut_hrdata;
+    force ahb_if.slave_if[0].hresp   = {1'b0, dut_hresp};
   end
 
   // ---------------------------------------------------------------

@@ -22,6 +22,8 @@ variables:
   VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
   VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
   RTLA_HOME: /eda/synopsys/2022-23/RHELx86/RTL-ARCH_2022.12
+  # Synopsys VC VIP (for UVM AMBA agents)
+  VIP_HOME: /eda/synopsys/2022-23/RHELx86/VC-VIP-SOC_2022.12
   # Cadence Xcelium (provides HAL linter)
   XCELIUM_HOME: /eda/cadence/xcelium
   # Simulator selection for cocotb
@@ -83,6 +85,7 @@ preflight:
       check_dir "VERDI_HOME"    "$VERDI_HOME"
       check_dir "XCELIUM_HOME"  "$XCELIUM_HOME"
       check_dir "RTLA_HOME"     "$RTLA_HOME"
+      check_dir "VIP_HOME"      "$VIP_HOME"
 
       echo ""
       echo "── IP Libraries ────────────────────────"
@@ -220,6 +223,48 @@ ethmac_ahb:
       junit: cocotb/ethmac_ahb/results.xml
     paths:
       - cocotb/ethmac_ahb/results.xml
+    expire_in: 30 days
+
+# ── UVM Verification ─────────────────────────────────────────────────────
+
+uvm-ahb3lite_to_wb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export VIP_HOME="$VIP_HOME"
+    - export DESIGNWARE_HOME="$VIP_HOME"
+  script:
+    - make -C "$WORK_DIR/uvm/ahb3lite_to_wb" clean
+    - make -C "$WORK_DIR/uvm/ahb3lite_to_wb" run_all
+  artifacts:
+    when: always
+    paths:
+      - uvm/ahb3lite_to_wb/sim_build/*.log
+    expire_in: 30 days
+
+uvm-wb_to_ahb3lite:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export VIP_HOME="$VIP_HOME"
+    - export DESIGNWARE_HOME="$VIP_HOME"
+  script:
+    - make -C "$WORK_DIR/uvm/wb_to_ahb3lite" clean
+    - make -C "$WORK_DIR/uvm/wb_to_ahb3lite" run_all
+  artifacts:
+    when: always
+    paths:
+      - uvm/wb_to_ahb3lite/sim_build/*.log
     expire_in: 30 days
 
 # ── RTL SAIF Generation ─────────────────────────────────────────────────

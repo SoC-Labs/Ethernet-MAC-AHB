@@ -50,8 +50,9 @@ class ahb_wb_bridge_scoreboard extends uvm_scoreboard;
   virtual function void write_ahb(svt_ahb_transaction tr);
     svt_ahb_master_transaction mtr;
 
-    // Filter IDLE transactions
-    if (tr.xact_type == svt_ahb_transaction::IDLE)
+    // Filter IDLE transactions (coherent_xact_type check not needed;
+    // skip reads/writes whose trans_type is IDLE)
+    if (tr.trans_type == svt_ahb_transaction::IDLE)
       return;
 
     if (!$cast(mtr, tr))

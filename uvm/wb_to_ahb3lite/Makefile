@@ -147,14 +147,21 @@ TESTS = wb_ahb_bridge_single_test \
         wb_ahb_bridge_random_test
 
 run_all: compile
-	@for test in $(TESTS); do \
+	@fail=0; \
+	for test in $(TESTS); do \
 		echo "======== Running $$test ========"; \
-		cd $(SIM_DIR) && ./simv +UVM_TESTNAME=$$test +UVM_VERBOSITY=$(VERBOSITY) \
+		if cd $(SIM_DIR) && ./simv +UVM_TESTNAME=$$test +UVM_VERBOSITY=$(VERBOSITY) \
 			-cm line+cond+tgl+fsm+branch -cm_dir simv.vdb \
-			+ntb_random_seed_automatic -l $$test.log; \
+			+ntb_random_seed_automatic -l $$test.log; then \
+			echo "  PASSED: $$test"; \
+		else \
+			echo "  FAILED: $$test"; \
+			fail=$$((fail + 1)); \
+		fi; \
 		cd ..; \
-	done
-	@echo "======== All tests complete ========"
+	done; \
+	echo "======== All tests complete ($$fail failure(s)) ========"; \
+	exit $$fail
 
 clean:
 	rm -rf $(SIM_DIR) $(COV_DIR) csrc *.log ucli.key vc_hdrs.h
