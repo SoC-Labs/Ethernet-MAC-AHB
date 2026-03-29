@@ -11,15 +11,23 @@ export ETHMAC_IP_DIR ?= /research/AAA/ip_library/OpenCores-EthMAC
 export MODULE ?= ethmac_ahb
 
 # ── File lists ─────────────────────────────────────────────────────────────
-export FLIST := $(ETHMAC_AHB_HOME)/flist/$(MODULE).flist
+# Use ASIC filelist if it exists (instantiates compiled SRAM macro),
+# otherwise fall back to the default filelist (bridge-only modules).
+FLIST_ASIC    := $(ETHMAC_AHB_HOME)/flist/$(MODULE)_asic.flist
+FLIST_DEFAULT := $(ETHMAC_AHB_HOME)/flist/$(MODULE).flist
+export FLIST  := $(if $(wildcard $(FLIST_ASIC)),$(FLIST_ASIC),$(FLIST_DEFAULT))
 
 # ── Cell libraries (update paths to match your PDK installation) ───────────
 # Target library (.db) — used for mapping and optimization
 # Defaultly using the 65nm Library
 export TARGET_LIB     ?= /research/AAA/phys_ip_library/arm/tsmc/cln65lp/sc12_base_rvt/r0p0/db/sc12_cln65lp_base_rvt_ss_typical_max_1p08v_125c.db
 
+# Compiled SRAM macro library (rf_08k — 2048x32, TSMC 65nm)
+export MEM_PATH       ?= /research/precompiled_mems/TSMC65/rf_08k
+export MEM_DB_SS      ?= $(MEM_PATH)/rf_08k_ss_1p08v_1p08v_125c.db
+
 # Link libraries — target + any additional macro/IP libs
-export LINK_LIBS      ?= $(TARGET_LIB)
+export LINK_LIBS      ?= $(TARGET_LIB) $(MEM_DB_SS)
 
 # TF/Milkyway — physical reference for floorplan estimation (TSMC 65nm, 1p9m_6x2z)
 export PHYS_IP_PATH   ?= /research/AAA/phys_ip_library/arm/tsmc/cln65lp

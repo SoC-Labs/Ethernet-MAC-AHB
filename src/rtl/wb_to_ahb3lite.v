@@ -131,6 +131,7 @@ module wb_to_ahb3lite (
   reg        write_reg;      // Write direction (latched at transfer start)
   reg        burst_reg;      // 1 = INCR4 burst, 0 = single
   reg [1:0]  beat_count;     // Next burst address beat to issue (1-3)
+  reg [31:0] hwdata_reg;     // Registered write data (stable during wait states)
 
   //---------------------------------------------------------------
   // Combinational output registers
@@ -153,7 +154,7 @@ module wb_to_ahb3lite (
   //---------------------------------------------------------------
   assign mHSIZE    = 3'b010;           // Always 32-bit word transfers
   assign mHPROT    = 4'b0011;          // Privileged data, non-cacheable
-  assign mHSEL     = from_m_wb_cyc_o;  // Active during WB cycle
+  assign mHSEL     = (state != S_IDLE); // Active when FSM is processing a transfer
   assign mHREADYOUT = 1'b1;            // Bridge never inserts wait states
 
   //---------------------------------------------------------------
@@ -168,7 +169,7 @@ module wb_to_ahb3lite (
   // Read data: HRDATA is valid when HREADY=1 during a data phase.
   // We pass it through to the WB master simultaneously with ACK.
   //---------------------------------------------------------------
-  assign mHWDATA      = from_m_wb_dat_o;
+  assign mHWDATA      = hwdata_reg;
   assign to_m_wb_dat_i = mHRDATA;
 
   //---------------------------------------------------------------
@@ -307,6 +308,7 @@ module wb_to_ahb3lite (
       write_reg  <= 1'b0;
       burst_reg  <= 1'b0;
       beat_count <= 2'b00;
+      hwdata_reg <= 32'd0;
     end else begin
       state <= next_state;
 
@@ -317,12 +319,40 @@ module wb_to_ahb3lite (
             write_reg  <= from_m_wb_we_o;
             burst_reg  <= wb_burst;
             beat_count <= 2'd1;
+            hwdata_reg <= from_m_wb_dat_o;
+          end
+        end
+
+        S_ADDR: begin
+          // Latch fresh write data for the first data phase
+          hwdata_reg <= from_m_wb_dat_o;
+        end
+
+        S_SINGLE_DATA: begin
+          if (mHRESP && mHREADY) begin
+            // Error on single transfer: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
           end
         end
 
         S_BURST_PIPE: begin
-          if (mHREADY && !mHRESP) begin
+          if (mHRESP && mHREADY) begin
+            // Error during burst: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
+          end else if (mHREADY) begin
             beat_count <= beat_count + 2'd1;
+            // Latch next beat's write data
+            hwdata_reg <= from_m_wb_dat_o;
+          end
+        end
+
+        S_BURST_LAST: begin
+          if (mHRESP && mHREADY) begin
+            // Error on last burst beat: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
           end
         end
 
