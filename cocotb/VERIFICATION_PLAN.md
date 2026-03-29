@@ -87,14 +87,51 @@ up to integration tests on the full wrapped system.
 
 ### Layer 2 — WB-to-AHB Bridge (`wb_to_ahb3lite`)
 
+#### Single-Beat Transfers
+
 | ID | Feature | Description | Pass Criteria |
 |---|---|---|---|
-| 2.1 | Single word write | WB master write, verify AHB NONSEQ + correct addr/data | AHB addr/data match WB master |
-| 2.2 | Single word read | WB master read, verify returned data from AHB slave | WB dat_i matches AHB read data |
-| 2.3 | Back-to-back transfers | Consecutive WB cycles | All transfers complete |
-| 2.4 | AHB slave wait states | AHB HREADY deasserted by slave, verify WB ack delays | WB ack delayed until HREADY |
-| 2.5 | AHB slave error | HRESP=ERROR, verify WB err_i returned | WB err_i asserted |
-| 2.6 | Reset behaviour | Verify clean state after reset assertion | All outputs at default |
+| 2.1 | Single word write | WB classic write (CTI=000), verify AHB NONSEQ write | Data written to AHB slave memory matches WB data |
+| 2.2 | Single word read | WB classic read (CTI=000), verify returned data | WB dat_i matches pre-loaded AHB slave memory |
+| 2.3 | Write then read-back | Write data via WB, read back from same address | Read data matches written data |
+| 2.4 | Back-to-back singles | Consecutive WB classic cycles without idle gap | All transfers complete, data integrity maintained |
+| 2.5 | Multiple addresses | Write/read to different addresses (stride pattern) | Each address holds correct independent value |
+
+#### 4-Beat INCR4 Burst Transfers
+
+| ID | Feature | Description | Pass Criteria |
+|---|---|---|---|
+| 2.6 | Burst write (INCR4) | WB B3 burst write (CTI=010,010,010,111), 4 words | All 4 words written to consecutive AHB addresses |
+| 2.7 | Burst read (INCR4) | WB B3 burst read (CTI=010,010,010,111), 4 words | All 4 words read back correctly |
+| 2.8 | Burst write then read-back | Burst write 4 words, single-read each back | All 4 words preserved at correct addresses |
+| 2.9 | Burst address sequencing | Verify AHB addresses increment by 4 per beat | HADDR = base, base+4, base+8, base+C |
+| 2.10 | HBURST stability | Verify HBURST=INCR4 is stable throughout burst | HBURST does not change mid-burst |
+| 2.11 | HTRANS sequencing | Verify NONSEQ on first beat, SEQ on continuation | HTRANS follows AHB spec for INCR4 |
+| 2.12 | Consecutive bursts | Two back-to-back 4-beat bursts | Both bursts complete with correct data |
+
+#### AHB Protocol Compliance
+
+| ID | Feature | Description | Pass Criteria |
+|---|---|---|---|
+| 2.13 | AHB slave wait states | AHB slave inserts HREADY=0 during data phase | WB ack delayed, data still correct |
+| 2.14 | Burst with wait states | INCR4 burst where slave inserts wait states | All 4 beats complete correctly despite delays |
+| 2.15 | HPROT driven | Verify HPROT output has sensible default | HPROT = 4'b0011 (privileged data) |
+| 2.16 | HSIZE driven | Verify HSIZE = WORD for all transfers | HSIZE = 3'b010 always |
+
+#### Error Handling
+
+| ID | Feature | Description | Pass Criteria |
+|---|---|---|---|
+| 2.17 | AHB error on single | HRESP=1 during single transfer data phase | WB err_i asserted, no WB ack |
+| 2.18 | AHB error mid-burst | HRESP=1 during burst, verify burst aborted | WB err_i asserted, bridge returns to idle |
+
+#### Reset and Idle Behaviour
+
+| ID | Feature | Description | Pass Criteria |
+|---|---|---|---|
+| 2.19 | Reset clears state | Assert reset, verify bridge returns to idle | HTRANS=IDLE, no WB ack/err, state machine in S_IDLE |
+| 2.20 | Idle bus state | No WB activity, verify AHB bus idle | HTRANS=IDLE, no spurious activity |
+| 2.21 | Transfer after reset | Reset then perform single write+read | Transfer completes correctly after reset |
 
 ### Layer 3 — Integrated Wrapper (`ethmac_ahb`) — Register Access
 
