@@ -12,35 +12,35 @@
 
 module ethmac_ahb_rmii (
   // Clock and Reset
-  input  wire        HCLK,
-  input  wire        HRESETn,
+  input  wire        hclk,
+  input  wire        hresetn,
 
   // AHB Master Interface (DMA)
-  output wire [31:0] HADDR,
-  output wire  [1:0] HTRANS,
-  output wire  [2:0] HSIZE,
-  output wire  [2:0] HBURST,
-  output wire  [3:0] HPROT,
-  output wire        HMASTLOCK,
-  output wire        HWRITE,
-  output wire [31:0] HWDATA,
-  input  wire [31:0] HRDATA,
-  input  wire        HREADY,
-  input  wire        HRESP,
+  output wire [31:0] haddr,
+  output wire  [1:0] htrans,
+  output wire  [2:0] hsize,
+  output wire  [2:0] hburst,
+  output wire  [3:0] hprot,
+  output wire        hmastlock,
+  output wire        hwrite,
+  output wire [31:0] hwdata,
+  input  wire [31:0] hrdata,
+  input  wire        hready,
+  input  wire        hresp,
 
   // AHB Slave Interface (Register Access)
-  input  wire        HSEL_S,
-  input  wire [31:0] HADDR_S,
-  input  wire  [1:0] HTRANS_S,
-  input  wire  [2:0] HSIZE_S,
-  input  wire  [2:0] HBURST_S,
-  input  wire  [3:0] HPROT_S,
-  input  wire        HWRITE_S,
-  input  wire [31:0] HWDATA_S,
-  input  wire        HREADY_S,
-  output wire [31:0] HRDATA_S,
-  output wire        HREADYOUT_S,
-  output wire        HRESP_S,
+  input  wire        hsel_s,
+  input  wire [31:0] haddr_s,
+  input  wire  [1:0] htrans_s,
+  input  wire  [2:0] hsize_s,
+  input  wire  [2:0] hburst_s,
+  input  wire  [3:0] hprot_s,
+  input  wire        hwrite_s,
+  input  wire [31:0] hwdata_s,
+  input  wire        hready_s,
+  output wire [31:0] hrdata_s,
+  output wire        hreadyout_s,
+  output wire        hresp_s,
 
   // RMII Interface
   input  wire        rmii_ref_clk,    // 50 MHz reference clock
@@ -79,7 +79,7 @@ module ethmac_ahb_rmii (
   // RMII to MII Adapter
   //---------------------------------------------------
   rmii_to_mii u_rmii_to_mii (
-    .RESETn         (HRESETn),
+    .RESETn         (hresetn),
 
     // RMII side
     .rmii_ref_clk   (rmii_ref_clk),
@@ -108,35 +108,35 @@ module ethmac_ahb_rmii (
   //---------------------------------------------------
   ethmac_ahb u_ethmac_ahb (
     // Clock and Reset
-    .HCLK           (HCLK),
-    .HRESETn        (HRESETn),
+    .hclk           (hclk),
+    .hresetn        (hresetn),
 
     // AHB Master
-    .HADDR          (HADDR),
-    .HTRANS         (HTRANS),
-    .HSIZE          (HSIZE),
-    .HBURST         (HBURST),
-    .HPROT          (HPROT),
-    .HMASTLOCK      (HMASTLOCK),
-    .HWRITE         (HWRITE),
-    .HWDATA         (HWDATA),
-    .HRDATA         (HRDATA),
-    .HREADY         (HREADY),
-    .HRESP          (HRESP),
+    .haddr          (haddr),
+    .htrans         (htrans),
+    .hsize          (hsize),
+    .hburst         (hburst),
+    .hprot          (hprot),
+    .hmastlock      (hmastlock),
+    .hwrite         (hwrite),
+    .hwdata         (hwdata),
+    .hrdata         (hrdata),
+    .hready         (hready),
+    .hresp          (hresp),
 
     // AHB Slave
-    .HSEL_S         (HSEL_S),
-    .HADDR_S        (HADDR_S),
-    .HTRANS_S       (HTRANS_S),
-    .HSIZE_S        (HSIZE_S),
-    .HBURST_S       (HBURST_S),
-    .HPROT_S        (HPROT_S),
-    .HWRITE_S       (HWRITE_S),
-    .HWDATA_S       (HWDATA_S),
-    .HREADY_S       (HREADY_S),
-    .HRDATA_S       (HRDATA_S),
-    .HREADYOUT_S    (HREADYOUT_S),
-    .HRESP_S        (HRESP_S),
+    .hsel_s         (hsel_s),
+    .haddr_s        (haddr_s),
+    .htrans_s       (htrans_s),
+    .hsize_s        (hsize_s),
+    .hburst_s       (hburst_s),
+    .hprot_s        (hprot_s),
+    .hwrite_s       (hwrite_s),
+    .hwdata_s       (hwdata_s),
+    .hready_s       (hready_s),
+    .hrdata_s       (hrdata_s),
+    .hreadyout_s    (hreadyout_s),
+    .hresp_s        (hresp_s),
 
     // MII Transmit
     .mtx_clk_pad_i  (mtx_clk),

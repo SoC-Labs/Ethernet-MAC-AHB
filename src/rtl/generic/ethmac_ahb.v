@@ -11,35 +11,35 @@
 
 module ethmac_ahb (
   // Clock and Reset
-  input  wire        HCLK,
-  input  wire        HRESETn,
+  input  wire        hclk,
+  input  wire        hresetn,
 
   // AHB Master Interface (DMA)
-  output wire [31:0] HADDR,
-  output wire  [1:0] HTRANS,
-  output wire  [2:0] HSIZE,
-  output wire  [2:0] HBURST,
-  output wire  [3:0] HPROT,
-  output wire        HMASTLOCK,
-  output wire        HWRITE,
-  output wire [31:0] HWDATA,
-  input  wire [31:0] HRDATA,
-  input  wire        HREADY,
-  input  wire        HRESP,
+  output wire [31:0] haddr,
+  output wire  [1:0] htrans,
+  output wire  [2:0] hsize,
+  output wire  [2:0] hburst,
+  output wire  [3:0] hprot,
+  output wire        hmastlock,
+  output wire        hwrite,
+  output wire [31:0] hwdata,
+  input  wire [31:0] hrdata,
+  input  wire        hready,
+  input  wire        hresp,
 
   // AHB Slave Interface (Register Access)
-  input  wire        HSEL_S,
-  input  wire [31:0] HADDR_S,
-  input  wire  [1:0] HTRANS_S,
-  input  wire  [2:0] HSIZE_S,
-  input  wire  [2:0] HBURST_S,
-  input  wire  [3:0] HPROT_S,
-  input  wire        HWRITE_S,
-  input  wire [31:0] HWDATA_S,
-  input  wire        HREADY_S,
-  output wire [31:0] HRDATA_S,
-  output wire        HREADYOUT_S,
-  output wire        HRESP_S,
+  input  wire        hsel_s,
+  input  wire [31:0] haddr_s,
+  input  wire  [1:0] htrans_s,
+  input  wire  [2:0] hsize_s,
+  input  wire  [2:0] hburst_s,
+  input  wire  [3:0] hprot_s,
+  input  wire        hwrite_s,
+  input  wire [31:0] hwdata_s,
+  input  wire        hready_s,
+  output wire [31:0] hrdata_s,
+  output wire        hreadyout_s,
+  output wire        hresp_s,
 
   // MII Transmit
   input  wire        mtx_clk_pad_i,
@@ -100,22 +100,22 @@ module ethmac_ahb (
   // AHB Slave to WISHBONE Slave Bridge (Register Access)
   //---------------------------------------------------
   ahb3lite_to_wb u_ahb3lite_to_wb (
-    .clk_i          (HCLK),
-    .rst_n_i        (HRESETn),
+    .clk_i          (hclk),
+    .rst_n_i        (hresetn),
 
     // AHB slave side
-    .sHADDR         (HADDR_S),
-    .sHWDATA        (HWDATA_S),
-    .sHWRITE        (HWRITE_S),
-    .sHREADYOUT     (HREADYOUT_S),
-    .sHSIZE         (HSIZE_S),
-    .sHBURST        (HBURST_S),
-    .sHSEL          (HSEL_S),
-    .sHTRANS        (HTRANS_S),
-    .sHRDATA        (HRDATA_S),
-    .sHRESP         (HRESP_S),
-    .sHREADY        (HREADY_S),
-    .sHPROT         (HPROT_S),
+    .sHADDR         (haddr_s),
+    .sHWDATA        (hwdata_s),
+    .sHWRITE        (hwrite_s),
+    .sHREADYOUT     (hreadyout_s),
+    .sHSIZE         (hsize_s),
+    .sHBURST        (hburst_s),
+    .sHSEL          (hsel_s),
+    .sHTRANS        (htrans_s),
+    .sHRDATA        (hrdata_s),
+    .sHRESP         (hresp_s),
+    .sHREADY        (hready_s),
+    .sHPROT         (hprot_s),
 
     // WISHBONE slave side
     .to_wb_dat_i    (wb_dat_i),
@@ -133,8 +133,8 @@ module ethmac_ahb (
   // WISHBONE Master to AHB Master Bridge (DMA)
   //---------------------------------------------------
   wb_to_ahb3lite u_wb_to_ahb3lite (
-    .clk_i              (HCLK),
-    .rst_n_i            (HRESETn),
+    .clk_i              (hclk),
+    .rst_n_i            (hresetn),
 
     // WISHBONE master side
     .from_m_wb_adr_o    (m_wb_adr_o),
@@ -150,18 +150,18 @@ module ethmac_ahb (
     .from_m_wb_bte_o    (m_wb_bte_o),
 
     // AHB master side
-    .mHSEL              (HMASTLOCK),
-    .mHSIZE             (HSIZE),
-    .mHRDATA            (HRDATA),
-    .mHRESP             (HRESP),
-    .mHREADY            (HREADY),
+    .mHSEL              (hmastlock),
+    .mHSIZE             (hsize),
+    .mHRDATA            (hrdata),
+    .mHRESP             (hresp),
+    .mHREADY            (hready),
     .mHREADYOUT         (),
-    .mHWRITE            (HWRITE),
-    .mHBURST            (HBURST),
-    .mHADDR             (HADDR),
-    .mHTRANS            (HTRANS),
-    .mHWDATA            (HWDATA),
-    .mHPROT             (HPROT)
+    .mHWRITE            (hwrite),
+    .mHBURST            (hburst),
+    .mHADDR             (haddr),
+    .mHTRANS            (htrans),
+    .mHWDATA            (hwdata),
+    .mHPROT             (hprot)
   );
 
   //---------------------------------------------------
@@ -169,8 +169,8 @@ module ethmac_ahb (
   //---------------------------------------------------
   eth_top u_eth_top (
     // WISHBONE common
-    .wb_clk_i       (HCLK),
-    .wb_rst_i       (~HRESETn),
+    .wb_clk_i       (hclk),
+    .wb_rst_i       (~hresetn),
     .wb_dat_i       (wb_dat_i),
     .wb_dat_o       (wb_dat_o),
 
