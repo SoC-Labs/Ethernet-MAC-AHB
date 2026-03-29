@@ -8,7 +8,7 @@
 TOPLEVEL_LANG = verilog
 SIM ?= vcs
 
-ETHMAC_IP_DIR  ?= $(HOME)/SoCLabs/ethmac/tags/rel_27
+ETHMAC_IP_DIR  ?= /research/AAA/ip_library/OpenCores-EthMAC
 ETHMAC_RTL      = $(ETHMAC_IP_DIR)/rtl/verilog
 ETHMAC_PATCHES  = $(PWD)/../../src/rtl/ethmac_patches
 

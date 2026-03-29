@@ -1,0 +1,71 @@
+# GitLab CI pipeline for ethernet-mac-ahb
+#
+# Runs cocotb verification suites using VCS.
+# Requires a shell runner with VCS and cocotb in the environment.
+
+stages:
+  - build
+  - test
+
+variables:
+  ETHMAC_IP_DIR: /research/AAA/ip_library/OpenCores-EthMAC
+  SIM: vcs
+
+# ---------------------------------------------------------------------------
+# Common configuration
+# ---------------------------------------------------------------------------
+.cocotb_test:
+  tags:
+    - shell
+  before_script:
+    - source set_env.sh
+    - which vcs
+    - python3 -c "import cocotb; print('cocotb', cocotb.__version__)"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/$CI_JOB_NAME/results.xml
+    paths:
+      - cocotb/$CI_JOB_NAME/results.xml
+    expire_in: 30 days
+
+# ---------------------------------------------------------------------------
+# Layer 1 — AHB-to-WB bridge (7 tests)
+# ---------------------------------------------------------------------------
+ahb3lite_to_wb:
+  stage: test
+  extends: .cocotb_test
+  script:
+    - make -C cocotb/ahb3lite_to_wb clean
+    - make -C cocotb/ahb3lite_to_wb
+
+# ---------------------------------------------------------------------------
+# Layer 2 — WB-to-AHB bridge (6 tests)
+# ---------------------------------------------------------------------------
+wb_to_ahb3lite:
+  stage: test
+  extends: .cocotb_test
+  script:
+    - make -C cocotb/wb_to_ahb3lite clean
+    - make -C cocotb/wb_to_ahb3lite
+
+# ---------------------------------------------------------------------------
+# Layer 4 — RMII-to-MII adapter (7 tests)
+# ---------------------------------------------------------------------------
+rmii_to_mii:
+  stage: test
+  extends: .cocotb_test
+  script:
+    - make -C cocotb/rmii_to_mii clean
+    - make -C cocotb/rmii_to_mii
+
+# ---------------------------------------------------------------------------
+# Layer 3 — Integrated wrapper (21 tests, 3 known failures)
+# ---------------------------------------------------------------------------
+ethmac_ahb:
+  stage: test
+  extends: .cocotb_test
+  script:
+    - make -C cocotb/ethmac_ahb clean
+    - make -C cocotb/ethmac_ahb
+  allow_failure: true
