@@ -132,6 +132,7 @@ module wb_to_ahb3lite (
   reg        burst_reg;      // 1 = INCR4 burst, 0 = single
   reg [1:0]  beat_count;     // Next burst address beat to issue (1-3)
   reg [31:0] hwdata_reg;     // Registered write data (stable during wait states)
+  reg        idle_wait;      // Suppress phantom requests for 1 cycle after transfer end
 
   //---------------------------------------------------------------
   // Combinational output registers
@@ -158,18 +159,20 @@ module wb_to_ahb3lite (
   assign mHREADYOUT = 1'b1;            // Bridge never inserts wait states
 
   //---------------------------------------------------------------
-  // Data path: combinational pass-through
+  // Data path
   //
-  // Write data: The WB master holds data stable until ACK. The AHB
-  // slave samples HWDATA on the clock edge during the data phase.
-  // Because the state machine ACKs the WB master at the end of each
-  // AHB data phase, the MAC's registered data output naturally aligns
-  // with the next AHB data phase after the clock edge.
+  // Write data: For single transfers, hwdata_reg is latched in
+  // S_IDLE/S_ADDR and remains stable through S_SINGLE_DATA.
+  // For burst transfers, the pipelined AHB data phases overlap with
+  // WB beat handshakes. The WB master holds each beat's data stable
+  // until ACK, so from_m_wb_dat_o is always the correct data for the
+  // current data phase during S_BURST_PIPE and S_BURST_LAST.
   //
   // Read data: HRDATA is valid when HREADY=1 during a data phase.
   // We pass it through to the WB master simultaneously with ACK.
   //---------------------------------------------------------------
-  assign mHWDATA      = hwdata_reg;
+  assign mHWDATA      = (state == S_BURST_PIPE || state == S_BURST_LAST)
+                         ? from_m_wb_dat_o : hwdata_reg;
   assign to_m_wb_dat_i = mHRDATA;
 
   //---------------------------------------------------------------
@@ -202,7 +205,7 @@ module wb_to_ahb3lite (
       // a single master, HREADY is always 1 when the bus is idle.
       // -----------------------------------------------------------
       S_IDLE: begin
-        if (wb_request && mHREADY) begin
+        if (wb_request && mHREADY && !idle_wait) begin
           next_state = S_ADDR;
         end
       end
@@ -309,12 +312,21 @@ module wb_to_ahb3lite (
       burst_reg  <= 1'b0;
       beat_count <= 2'b00;
       hwdata_reg <= 32'd0;
+      idle_wait  <= 1'b0;
     end else begin
       state <= next_state;
+      // idle_wait is set when entering S_IDLE from a completed/errored
+      // transfer, and cleared after one cycle. This gives the WB driver
+      // time to update its bus signals, preventing the DUT from latching
+      // stale WB values as phantom requests.
+      if (state != S_IDLE && next_state == S_IDLE)
+        idle_wait <= 1'b1;
+      else
+        idle_wait <= 1'b0;
 
       case (state)
         S_IDLE: begin
-          if (wb_request && mHREADY) begin
+          if (wb_request && mHREADY && !idle_wait) begin
             addr_reg   <= from_m_wb_adr_o;
             write_reg  <= from_m_wb_we_o;
             burst_reg  <= wb_burst;
@@ -324,8 +336,11 @@ module wb_to_ahb3lite (
         end
 
         S_ADDR: begin
-          // Latch fresh write data for the first data phase
-          hwdata_reg <= from_m_wb_dat_o;
+          // hwdata_reg retains the value captured in S_IDLE.
+          // No update here: for real transactions, the WB data
+          // hasn't changed. For phantom transactions (stale WB
+          // signals after burst idle), from_m_wb_dat_o may have
+          // gone to zero and would corrupt the held value.
         end
 
         S_SINGLE_DATA: begin

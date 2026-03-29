@@ -84,7 +84,7 @@ class wb_master_monitor extends uvm_monitor;
     tr.write = is_write;
     tr.error = got_error;
 
-    if (is_burst && addr_queue.size() > 1)
+    if (is_burst)
       tr.cycle_type = WB_INCR4;
     else
       tr.cycle_type = WB_CLASSIC;

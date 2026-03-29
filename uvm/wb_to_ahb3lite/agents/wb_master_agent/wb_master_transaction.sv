@@ -30,6 +30,13 @@ class wb_master_transaction extends uvm_sequence_item;
     addr[1:0] == 2'b00;
   }
 
+  // INCR4 burst (4 beats x 4 bytes = 16 bytes) must not cross 1KB boundary
+  constraint c_no_1kb_crossing {
+    if (cycle_type == WB_INCR4) {
+      addr[9:0] <= (10'h400 - 10'h10);
+    }
+  }
+
   constraint c_sel_default {
     sel == 4'hF;
   }

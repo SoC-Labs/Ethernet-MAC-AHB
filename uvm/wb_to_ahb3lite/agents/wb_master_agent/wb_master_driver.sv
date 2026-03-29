@@ -155,6 +155,14 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
 
       if (!tr.write)
         tr.rdata[beat] = vif.drv_cb.dat_i;
+
+      // Pre-drive next beat's write data in the same clocking event as
+      // ACK detection. This ensures from_m_wb_dat_o has the correct data
+      // one cycle earlier, matching real register-to-register timing.
+      // Without this, the clocking block NBA region would delay the data
+      // by one cycle, causing HWDATA instability during AHB wait states.
+      if (tr.write && beat < 3)
+        vif.drv_cb.dat_o <= tr.data[beat + 1];
     end
 
     // Return bus to idle
