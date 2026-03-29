@@ -34,6 +34,7 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
 
   virtual task run_phase(uvm_phase phase);
     // Initialize bus to idle
+    @(vif.drv_cb);
     drive_idle();
 
     forever begin
@@ -50,9 +51,10 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
     end
   endtask
 
-  // Drive bus to idle state
+  // Drive bus to idle state (no clock edge consumed — drives immediately
+  // in the current clocking-block event so the DUT sees idle on the next
+  // rising edge)
   virtual task drive_idle();
-    @(vif.drv_cb);
     vif.drv_cb.cyc   <= 1'b0;
     vif.drv_cb.stb   <= 1'b0;
     vif.drv_cb.adr   <= 32'h0;

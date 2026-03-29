@@ -182,15 +182,6 @@ module test_top;
   );
 
   // ---------------------------------------------------------------
-  // Debug: print AHB write data timing (strobe = after all updates)
-  // ---------------------------------------------------------------
-  always @(posedge clk) begin
-    if (rst_n && $time >= 230 && $time <= 360)
-      $strobe("DBG T=%0t ST=%0d HTRANS=%b HADDR=%h DUT_HWDATA=%h WB_ADR=%h WB_DAT_O=%h HSEL=%b CYC=%b STB=%b ACK=%b",
-               $time, u_dut.state, dut_htrans, dut_haddr, dut_hwdata, wb_if.adr, wb_if.dat_o, dut_hsel, wb_if.cyc, wb_if.stb, wb_if.ack);
-  end
-
-  // ---------------------------------------------------------------
   // Waveform dumping
   // ---------------------------------------------------------------
 `ifdef WAVES_FSDB

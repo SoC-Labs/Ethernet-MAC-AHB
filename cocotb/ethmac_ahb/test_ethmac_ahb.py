@@ -280,7 +280,7 @@ async def test_reg_write_readback(dut):
         (REG_HASH0,      0xAAAAAAAA),
         (REG_HASH1,      0x55555555),
         (REG_TX_CTRL,    0x00010001),
-        (REG_RX_CTRL,    0x00010001),
+        (REG_RX_CTRL,    0x0000FFFF),
     ]
 
     for addr, write_val in test_patterns:
