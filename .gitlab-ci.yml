@@ -15,8 +15,6 @@ variables:
 # Common configuration
 # ---------------------------------------------------------------------------
 .cocotb_test:
-  tags:
-    - shell
   before_script:
     - source set_env.sh
     - which vcs
