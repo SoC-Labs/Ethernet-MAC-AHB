@@ -5,3 +5,11 @@ sim_build/
 ucli.key
 results.xml
 *.vcd
+*.log
+tests.txt
+session.xml
+modinfo.txt
+modlist.txt
+hierarchy.txt
+dashboard.txt
+asserts.txt

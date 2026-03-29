@@ -1,0 +1,2 @@
++incdir+${ETHMAC_AHB_HOME}/src/rtl
+${ETHMAC_AHB_HOME}/src/rtl/rmii_to_mii.v

@@ -65,9 +65,9 @@ module rmii_to_mii (
   always @(posedge rmii_ref_clk or negedge RESETn) begin
     if (!RESETn) begin
       tx_phase     <= 1'b0;
-      tx_data_held <= 4'b0;
+      tx_data_held <= 4'b0000;
       tx_en_held   <= 1'b0;
-      rmii_txd     <= 2'b0;
+      rmii_txd     <= 2'b00;
       rmii_tx_en   <= 1'b0;
     end else begin
       if (!tx_phase) begin
@@ -97,9 +97,9 @@ module rmii_to_mii (
   always @(posedge rmii_ref_clk or negedge RESETn) begin
     if (!RESETn) begin
       rx_phase    <= 1'b0;
-      rx_data_low <= 2'b0;
+      rx_data_low <= 2'b00;
       rx_dv_held  <= 1'b0;
-      mrxd        <= 4'b0;
+      mrxd        <= 4'b0000;
       mrxdv       <= 1'b0;
       mrxerr      <= 1'b0;
     end else begin

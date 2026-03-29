@@ -1,0 +1,10 @@
+*_hal.log
+*_hal.xml
+*_hal_report.txt
+hal.design_facts
+hal.log
+*.log.bak
+.hal-irun.history
+INCA_libs/
+xcelium.d/
+simaccel_modules_prelim.lst

@@ -1,84 +1,343 @@
 # GitLab CI pipeline for ethernet-mac-ahb
 #
-# Runs cocotb verification suites using VCS.
-# Requires a shell runner with VCS and cocotb in the environment.
+# Runs HAL lint, cocotb verification suites, and ASIC synthesis flows.
+# Requires a shell runner with VCS, Cadence Xcelium, and Synopsys tools.
 
 stages:
-  - build
+  - setup
+  - lint
   - test
+  - synthesis
+  # - gate-level
+  - cleanup
 
 variables:
+  # Disable GitLab's built-in checkout — we clone manually
+  GIT_STRATEGY: none
+  # Workspace directory for the pipeline
+  WORK_DIR: "${CI_BUILDS_DIR}/${CI_PROJECT_NAME}/${CI_PIPELINE_ID}"
+  # External IP
   ETHMAC_IP_DIR: /research/AAA/ip_library/OpenCores-EthMAC
+  # Synopsys EDA tool paths
+  VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
+  VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
+  RTLA_HOME: /eda/synopsys/2022-23/RHELx86/RTL-ARCH_2022.12
+  # Cadence Xcelium (provides HAL linter)
+  XCELIUM_HOME: /eda/cadence/xcelium
+  # Simulator selection for cocotb
   SIM: vcs
 
-# ---------------------------------------------------------------------------
-# Common configuration
-# ---------------------------------------------------------------------------
-.cocotb_test:
+# ── Clone ────────────────────────────────────────────────────────────────
+
+clone:
+  stage: setup
+  script:
+    - rm -rf "$WORK_DIR"
+    - mkdir -p "$WORK_DIR"
+    - git clone --branch "$CI_COMMIT_REF_NAME" --single-branch "$CI_REPOSITORY_URL" "$WORK_DIR"
+    - cd "$WORK_DIR" && git checkout "$CI_COMMIT_SHA"
+    - cd "$WORK_DIR" && git submodule update --init --recursive
+    - echo "Cloned $CI_COMMIT_SHORT_SHA into $WORK_DIR"
+
+# ── Preflight — validate all tool/IP paths before running jobs ────────
+
+preflight:
+  stage: setup
+  needs: [clone]
+  script:
+    - |
+      echo "========================================"
+      echo " Preflight Environment Check"
+      echo "========================================"
+
+      pass=0; fail=0
+
+      check_dir() {
+        local name="$1" path="$2"
+        if [ -z "$path" ]; then
+          echo "  FAIL  $name  (not set)"
+          fail=$((fail + 1))
+        elif [ -d "$path" ]; then
+          echo "  OK    $name = $path"
+          pass=$((pass + 1))
+        else
+          echo "  FAIL  $name = $path  (directory not found)"
+          fail=$((fail + 1))
+        fi
+      }
+
+      check_bin() {
+        local name="$1" bin="$2"
+        if command -v "$bin" > /dev/null 2>&1; then
+          echo "  OK    $name  ($(command -v "$bin"))"
+          pass=$((pass + 1))
+        else
+          echo "  FAIL  $name  ('$bin' not found on PATH)"
+          fail=$((fail + 1))
+        fi
+      }
+
+      echo ""
+      echo "── EDA Tools ───────────────────────────"
+      check_dir "VCS_HOME"      "$VCS_HOME"
+      check_dir "VERDI_HOME"    "$VERDI_HOME"
+      check_dir "XCELIUM_HOME"  "$XCELIUM_HOME"
+      check_dir "RTLA_HOME"     "$RTLA_HOME"
+
+      echo ""
+      echo "── IP Libraries ────────────────────────"
+      check_dir "ETHMAC_IP_DIR"  "$ETHMAC_IP_DIR"
+
+      echo ""
+      echo "── Workspace ───────────────────────────"
+      check_dir "WORK_DIR"      "$WORK_DIR"
+
+      echo ""
+      echo "── Tool Binaries (with PATH set) ───────"
+      export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$XCELIUM_HOME/tools/bin:$RTLA_HOME/bin:$PATH"
+      check_bin "vcs"             "vcs"
+      check_bin "hal"             "hal"
+      check_bin "python3"         "python3"
+      check_bin "cocotb-config"   "cocotb-config"
+
+      echo ""
+      echo "========================================"
+      echo " Preflight Summary  PASS=$pass  FAIL=$fail"
+      echo "========================================"
+
+      if [ "$fail" -ne 0 ]; then
+        echo ""
+        echo "ERROR: $fail preflight check(s) failed."
+        echo "Fix the paths in .gitlab-ci.yml variables or on the runner."
+        exit 1
+      fi
+
+# ── Lint ─────────────────────────────────────────────────────────────────
+
+hal-lint:
+  stage: lint
+  needs: [clone, preflight]
+  tags:
+    - xcelium
+  before_script:
+    - export PATH="$XCELIUM_HOME/tools/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+  script:
+    - echo "HAL version:" && hal -version 2>&1 | head -1
+    - make -C "$WORK_DIR/lint" lint-bridges
+  after_script:
+    - cp -r "$WORK_DIR/lint/"*_hal.log "$WORK_DIR/lint/"*_hal.xml . 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - "*_hal.log"
+      - "*_hal.xml"
+    expire_in: 30 days
+
+# ── Verification ─────────────────────────────────────────────────────────
+
+ahb3lite_to_wb:
+  stage: test
+  needs: [clone, preflight]
   tags:
     - vcs
   before_script:
-    - source set_env.sh
-    - pip3 install --user -r cocotb/requirements.txt
-    - which vcs
-    - python3 -c "import cocotb; print('cocotb', cocotb.__version__)"
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ahb3lite_to_wb" clean
+    - make -C "$WORK_DIR/cocotb/ahb3lite_to_wb"
   artifacts:
     when: always
     reports:
-      junit: cocotb/$CI_JOB_NAME/results.xml
+      junit: cocotb/ahb3lite_to_wb/results.xml
     paths:
-      - cocotb/$CI_JOB_NAME/results.xml
+      - cocotb/ahb3lite_to_wb/results.xml
     expire_in: 30 days
 
-# ---------------------------------------------------------------------------
-# Checkout — initialise submodules and verify external IP path
-# ---------------------------------------------------------------------------
-checkout:
-  stage: build
-  tags:
-    - vcs
-  script:
-    - git submodule update --init --recursive
-    - 'if [ ! -d "$ETHMAC_IP_DIR" ]; then echo "ERROR: ETHMAC_IP_DIR not found at $ETHMAC_IP_DIR"; exit 1; fi'
-    - echo "Submodule src/rtl/ahb3lite_wb_bridge and ETHMAC_IP_DIR are present"
-
-# ---------------------------------------------------------------------------
-# Layer 1 — AHB-to-WB bridge (7 tests)
-# ---------------------------------------------------------------------------
-ahb3lite_to_wb:
-  stage: test
-  extends: .cocotb_test
-  script:
-    - make -C cocotb/ahb3lite_to_wb clean
-    - make -C cocotb/ahb3lite_to_wb
-
-# ---------------------------------------------------------------------------
-# Layer 2 — WB-to-AHB bridge (6 tests)
-# ---------------------------------------------------------------------------
 wb_to_ahb3lite:
   stage: test
-  extends: .cocotb_test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
   script:
-    - make -C cocotb/wb_to_ahb3lite clean
-    - make -C cocotb/wb_to_ahb3lite
+    - make -C "$WORK_DIR/cocotb/wb_to_ahb3lite" clean
+    - make -C "$WORK_DIR/cocotb/wb_to_ahb3lite"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/wb_to_ahb3lite/results.xml
+    paths:
+      - cocotb/wb_to_ahb3lite/results.xml
+    expire_in: 30 days
 
-# ---------------------------------------------------------------------------
-# Layer 4 — RMII-to-MII adapter (7 tests)
-# ---------------------------------------------------------------------------
 rmii_to_mii:
   stage: test
-  extends: .cocotb_test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
   script:
-    - make -C cocotb/rmii_to_mii clean
-    - make -C cocotb/rmii_to_mii
+    - make -C "$WORK_DIR/cocotb/rmii_to_mii" clean
+    - make -C "$WORK_DIR/cocotb/rmii_to_mii"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/rmii_to_mii/results.xml
+    paths:
+      - cocotb/rmii_to_mii/results.xml
+    expire_in: 30 days
 
-# ---------------------------------------------------------------------------
-# Layer 3 — Integrated wrapper (21 tests, 3 known failures)
-# ---------------------------------------------------------------------------
 ethmac_ahb:
   stage: test
-  extends: .cocotb_test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
   script:
-    - make -C cocotb/ethmac_ahb clean
-    - make -C cocotb/ethmac_ahb
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb"
   allow_failure: true
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_ahb/results.xml
+    paths:
+      - cocotb/ethmac_ahb/results.xml
+    expire_in: 30 days
+
+# ── RTL SAIF Generation ─────────────────────────────────────────────────
+
+# rtl-saif:
+#   stage: test
+#   needs: [clone, preflight]
+#   tags:
+#     - vcs
+#   before_script:
+#     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+#     - export ETHMAC_AHB_HOME="$WORK_DIR"
+#     - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+#   script:
+#     - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+#     - make -C "$WORK_DIR/cocotb/ethmac_ahb" sim_rtl_saif
+#   after_script:
+#     - mkdir -p cocotb/ethmac_ahb
+#     - cp "$WORK_DIR/cocotb/ethmac_ahb/switching_activity.saif" cocotb/ethmac_ahb/ 2>/dev/null || true
+#   artifacts:
+#     when: always
+#     paths:
+#       - cocotb/ethmac_ahb/switching_activity.saif
+#     expire_in: 30 days
+
+# ── RTL Architect ────────────────────────────────────────────────────────
+
+rtl-architect:
+  stage: synthesis
+  needs: [clone, preflight]
+  tags:
+    - rtl_architect
+  before_script:
+    - export PATH="$RTLA_HOME/bin:$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+  script:
+    - echo "RTL Architect version:" && rtl_shell -version 2>&1 | head -3
+    - make -C "$WORK_DIR/syn/asic/rtl-architect" ra MODULE=ethmac_ahb
+  after_script:
+    - mkdir -p syn/asic/rtl-architect
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/ethmac_ahb_ra_reports" syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/rtl-architect/ethmac_ahb_ra.log"     syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/rpts_fc"    syn/asic/rtl-architect/rpts_fc/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/logs_rtl"  syn/asic/rtl-architect/logs_rtl/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/rtl-architect/ethmac_ahb_ra_reports/
+      - syn/asic/rtl-architect/ethmac_ahb_ra.log
+      - syn/asic/rtl-architect/rpts_fc/
+      - syn/asic/rtl-architect/logs_rtl/
+    expire_in: 30 days
+
+design-compiler:
+  stage: synthesis
+  needs:
+    - job: clone
+    - job: preflight
+  tags:
+    - design_compiler
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+  script:
+    - echo "DC version:" && { dc_shell -version 2>&1 | head -3 || true; }
+    - make -C "$WORK_DIR/syn/asic/design-compiler" syn MODULE=ethmac_ahb
+  after_script:
+    - mkdir -p syn/asic/design-compiler
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ethmac_ahb_dc_reports" syn/asic/design-compiler/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ethmac_ahb_dc_output"  syn/asic/design-compiler/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/design-compiler/ethmac_ahb_dc.log"     syn/asic/design-compiler/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/design-compiler/ethmac_ahb_dc_reports/
+      - syn/asic/design-compiler/ethmac_ahb_dc_output/
+      - syn/asic/design-compiler/ethmac_ahb_dc.log
+    expire_in: 30 days
+
+# ── Gate-Level Simulation ──────────────────────────────────────────────
+
+# gate-level-sim:
+#   stage: gate-level
+#   needs:
+#     - job: clone
+#     - job: preflight
+#     - job: design-compiler
+#       artifacts: true
+#   tags:
+#     - vcs
+#   before_script:
+#     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+#     - export ETHMAC_AHB_HOME="$WORK_DIR"
+#     - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+#     - cp -r syn/asic/design-compiler/ethmac_ahb_dc_output "$WORK_DIR/syn/asic/design-compiler/"
+#   script:
+#     - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+#     - make -C "$WORK_DIR/cocotb/ethmac_ahb" sim_asic
+#   after_script:
+#     - mkdir -p cocotb/ethmac_ahb
+#     - cp "$WORK_DIR/cocotb/ethmac_ahb/run.log"      cocotb/ethmac_ahb/ 2>/dev/null || true
+#     - cp "$WORK_DIR/cocotb/ethmac_ahb/results.xml"   cocotb/ethmac_ahb/ 2>/dev/null || true
+#   artifacts:
+#     when: always
+#     paths:
+#       - cocotb/ethmac_ahb/run.log
+#     reports:
+#       junit:
+#         - cocotb/ethmac_ahb/results.xml
+#     expire_in: 30 days
+
+# ── Cleanup ──────────────────────────────────────────────────────────────
+
+cleanup:
+  stage: cleanup
+  when: always
+  script:
+    - rm -rf "$WORK_DIR"
+    - echo "Cleaned up $WORK_DIR"

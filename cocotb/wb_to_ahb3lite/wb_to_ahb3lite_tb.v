@@ -73,6 +73,30 @@ module wb_to_ahb3lite_tb (
     .mHPROT             (hprot)
   );
 
+  //-------------------------------------------------------------------
+  // SVA properties bind — active during VCS simulation with -sverilog
+  //-------------------------------------------------------------------
+  wb_to_ahb3lite_props u_props (
+    .clk      (hclk),
+    .rst_n    (hresetn),
+    .htrans   (htrans),
+    .hburst   (hburst),
+    .haddr    (haddr),
+    .hwrite   (hwrite),
+    .hsize    (hsize),
+    .hprot    (hprot),
+    .hwdata   (hwdata),
+    .hready   (hready),
+    .hresp    (hresp),
+    .hrdata   (hrdata),
+    .wb_cyc   (wb_cyc),
+    .wb_stb   (wb_stb),
+    .wb_ack   (wb_ack),
+    .wb_err   (wb_err),
+    .wb_cti   (wb_cti),
+    .state    (u_dut.state)
+  );
+
   // VCD dump for waveform debugging
   initial begin
     $dumpfile("wb_to_ahb3lite_tb.vcd");

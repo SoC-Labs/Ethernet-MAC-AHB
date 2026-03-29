@@ -53,7 +53,7 @@ module wb_to_ahb3lite (
 
   // WISHBONE master side (directly connected to WB master, e.g. eth_top)
   input  [31:0]  from_m_wb_adr_o,
-  input  [3:0]   from_m_wb_sel_o,
+  input  [3:0]   from_m_wb_sel_o,    // Unused: bridge always does 32-bit word transfers
   input          from_m_wb_we_o,
   input  [31:0]  from_m_wb_dat_o,
   input          from_m_wb_cyc_o,
@@ -63,7 +63,7 @@ module wb_to_ahb3lite (
   output [31:0]  to_m_wb_dat_i,
 
   input  [2:0]   from_m_wb_cti_o,
-  input  [1:0]   from_m_wb_bte_o,
+  input  [1:0]   from_m_wb_bte_o,    // Unused: only linear bursts supported (BTE=00)
 
   // AHB3-Lite master side
   output         mHSEL,
@@ -96,9 +96,7 @@ module wb_to_ahb3lite (
   //---------------------------------------------------------------
   // WB B3 Cycle Type Identifier
   //---------------------------------------------------------------
-  localparam [2:0] CTI_CLASSIC = 3'b000;
   localparam [2:0] CTI_INCR    = 3'b010;
-  localparam [2:0] CTI_EOB     = 3'b111;
 
   //---------------------------------------------------------------
   // State machine
@@ -253,7 +251,7 @@ module wb_to_ahb3lite (
       // -----------------------------------------------------------
       S_BURST_PIPE: begin
         htrans_comb = HTRANS_SEQ;
-        haddr_comb  = addr_reg + {beat_count, 2'b00};
+        haddr_comb  = addr_reg + {28'd0, beat_count, 2'b00};
         hburst_comb = HBURST_INCR4;
         hwrite_comb = write_reg;
 
@@ -305,10 +303,10 @@ module wb_to_ahb3lite (
   always @(posedge clk_i or negedge rst_n_i) begin
     if (!rst_n_i) begin
       state      <= S_IDLE;
-      addr_reg   <= 32'b0;
+      addr_reg   <= 32'd0;
       write_reg  <= 1'b0;
       burst_reg  <= 1'b0;
-      beat_count <= 2'b0;
+      beat_count <= 2'b00;
     end else begin
       state <= next_state;
 

@@ -1,0 +1,3 @@
+${ETHMAC_AHB_HOME}/syn/asic/design-compiler/ethmac_ahb_dc_output/ethmac_ahb.mapped.v
+${STDCELL_VERILOG}/sc12_cln65lp_base_rvt_udp.v
+${STDCELL_VERILOG}/sc12_cln65lp_base_rvt.v

@@ -7,6 +7,8 @@ Tests the rewritten WISHBONE B3 master to AHB3-Lite master bridge using:
   - cocotbext-ahb AHBLiteSlaveRAM to respond on the AHB side
 """
 
+import random
+
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles, Timer
@@ -720,3 +722,724 @@ async def test_burst_write_burst_read(dut):
     for i, (got, expected) in enumerate(zip(results, burst_data)):
         assert got == expected, \
             f"Beat {i}: expected 0x{expected:08X}, got 0x{got:08X}"
+
+
+# ===========================================================================
+# AHB Protocol Monitor (passive checker)
+# ===========================================================================
+class AHBProtocolMonitor:
+    """Passive AHB protocol checker that runs alongside tests.
+
+    Checks protocol rules on every clock cycle:
+    - HTRANS sequencing (SEQ only after NONSEQ/SEQ)
+    - HBURST stable during burst
+    - INCR4 address increment is +4
+    - No simultaneous ACK and ERR on WB side
+    """
+
+    def __init__(self, dut, log):
+        self.dut = dut
+        self.log = log
+        self.errors = []
+        self.prev_htrans = HTRANS_IDLE
+        self.prev_haddr = 0
+        self.burst_hburst = None
+        self.burst_hwrite = None
+        self.in_burst = False
+        self.burst_beat_count = 0
+
+    async def run(self):
+        """Run the monitor continuously until the test ends."""
+        while True:
+            await RisingEdge(self.dut.hclk)
+
+            if self.dut.hresetn.value == 0:
+                self.prev_htrans = HTRANS_IDLE
+                self.in_burst = False
+                self.burst_beat_count = 0
+                continue
+
+            htrans = int(self.dut.htrans.value)
+            hburst = int(self.dut.hburst.value)
+            haddr  = int(self.dut.haddr.value)
+            hwrite = int(self.dut.hwrite.value)
+            hready = int(self.dut.hready.value)
+            wb_ack = int(self.dut.wb_ack.value)
+            wb_err = int(self.dut.wb_err.value)
+
+            # Check: no simultaneous ACK and ERR
+            if wb_ack and wb_err:
+                self._fail("WB ACK and ERR asserted simultaneously")
+
+            # Check: SEQ only follows NONSEQ or SEQ
+            if htrans == HTRANS_SEQ:
+                if self.prev_htrans not in (HTRANS_NONSEQ, HTRANS_SEQ):
+                    self._fail(f"HTRANS=SEQ after prev={self.prev_htrans}")
+
+            # Track burst state
+            if hready:
+                if htrans == HTRANS_NONSEQ:
+                    self.burst_hburst = hburst
+                    self.burst_hwrite = hwrite
+                    self.in_burst = (hburst != HBURST_SINGLE)
+                    self.burst_beat_count = 1
+                    self.prev_haddr = haddr
+                elif htrans == HTRANS_SEQ and self.in_burst:
+                    self.burst_beat_count += 1
+                    # Check: HBURST stable during burst
+                    if hburst != self.burst_hburst:
+                        self._fail(f"HBURST changed mid-burst: "
+                                   f"expected {self.burst_hburst}, got {hburst}")
+                    # Check: HWRITE stable during burst
+                    if hwrite != self.burst_hwrite:
+                        self._fail(f"HWRITE changed mid-burst")
+                    # Check: INCR4 address increment
+                    if self.burst_hburst == HBURST_INCR4:
+                        expected_addr = (self.prev_haddr + 4) & 0xFFFFFFFF
+                        if haddr != expected_addr:
+                            self._fail(f"INCR4 addr: expected 0x{expected_addr:08X}, "
+                                       f"got 0x{haddr:08X}")
+                    self.prev_haddr = haddr
+                elif htrans == HTRANS_IDLE:
+                    if self.in_burst and self.burst_hburst == HBURST_INCR4:
+                        if self.burst_beat_count != 4:
+                            self._fail(f"INCR4 burst ended after "
+                                       f"{self.burst_beat_count} beats (expected 4)")
+                    self.in_burst = False
+                    self.burst_beat_count = 0
+
+                self.prev_htrans = htrans
+
+    def _fail(self, msg):
+        self.log.error(f"AHB PROTOCOL VIOLATION: {msg}")
+        self.errors.append(msg)
+
+    def check(self):
+        """Assert no protocol violations were detected."""
+        assert len(self.errors) == 0, \
+            f"AHB protocol monitor detected {len(self.errors)} violations:\n" + \
+            "\n".join(f"  - {e}" for e in self.errors)
+
+
+# ===========================================================================
+# Test: Constrained random single transfers
+# ===========================================================================
+@cocotb.test()
+async def test_random_singles(dut):
+    """Constrained random mix of single writes and reads."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    ahb_slave = build_ahb_slave(dut)
+    monitor = AHBProtocolMonitor(dut, dut._log)
+    cocotb.start_soon(monitor.run())
+
+    rng = random.Random(42)  # Fixed seed for reproducibility
+    written = {}
+
+    NUM_OPS = 50
+
+    for _ in range(NUM_OPS):
+        # Random word-aligned address within slave memory
+        addr = rng.randrange(0, 4096, 4)
+        data = rng.randint(0, 0xFFFFFFFF)
+
+        # Randomly write or read
+        if rng.random() < 0.6 or addr not in written:
+            # Write
+            await wb_single_write(dut, addr, data)
+            written[addr] = data
+        else:
+            # Read back previously written address
+            read_data = await wb_single_read(dut, addr)
+            expected = written[addr]
+            assert read_data == expected, \
+                f"Random read @ 0x{addr:03X}: expected 0x{expected:08X}, got 0x{read_data:08X}"
+
+    # Verify all written data
+    for addr, expected in written.items():
+        read_data = await wb_single_read(dut, addr)
+        assert read_data == expected, \
+            f"Final verify @ 0x{addr:03X}: expected 0x{expected:08X}, got 0x{read_data:08X}"
+
+    monitor.check()
+    dut._log.info(f"Random singles: {NUM_OPS} operations, {len(written)} unique addresses verified")
+
+
+# ===========================================================================
+# Test: Constrained random burst transfers
+# ===========================================================================
+@cocotb.test()
+async def test_random_bursts(dut):
+    """Constrained random mix of burst writes and reads."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    ahb_slave = build_ahb_slave(dut)
+    monitor = AHBProtocolMonitor(dut, dut._log)
+    cocotb.start_soon(monitor.run())
+
+    rng = random.Random(123)
+    memory_model = {}  # Track individual word addresses to handle overlaps
+
+    NUM_BURSTS = 20
+    burst_bases = []
+
+    for _ in range(NUM_BURSTS):
+        # Random word-aligned base address (leaving room for 4 words)
+        base = rng.randrange(0, 4096 - 16, 4)
+        data = [rng.randint(0, 0xFFFFFFFF) for _ in range(4)]
+
+        await wb_burst_write(dut, base, data)
+        burst_bases.append(base)
+        for i, d in enumerate(data):
+            memory_model[base + i * 4] = d
+
+    # Read back all bursts using individual word tracking
+    for base in burst_bases:
+        results = await wb_burst_read(dut, base)
+        for i, got in enumerate(results):
+            addr = base + i * 4
+            expected = memory_model[addr]
+            assert got == expected, \
+                f"Burst @ 0x{base:03X} beat {i}: expected 0x{expected:08X}, got 0x{got:08X}"
+
+    monitor.check()
+    dut._log.info(f"Random bursts: {NUM_BURSTS} bursts written and verified")
+
+
+# ===========================================================================
+# Test: Constrained random mixed traffic (singles + bursts)
+# ===========================================================================
+@cocotb.test()
+async def test_random_mixed_traffic(dut):
+    """Constrained random interleaving of single and burst transfers."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    ahb_slave = build_ahb_slave(dut)
+    monitor = AHBProtocolMonitor(dut, dut._log)
+    cocotb.start_soon(monitor.run())
+
+    rng = random.Random(999)
+    memory_model = {}  # addr -> data
+
+    NUM_OPS = 40
+
+    for op_num in range(NUM_OPS):
+        is_burst = rng.random() < 0.4
+        is_write = rng.random() < 0.6
+
+        if is_burst:
+            base = rng.randrange(0, 4096 - 16, 4)
+            if is_write:
+                data = [rng.randint(0, 0xFFFFFFFF) for _ in range(4)]
+                await wb_burst_write(dut, base, data)
+                for i, d in enumerate(data):
+                    memory_model[base + i * 4] = d
+            else:
+                # Only read if we've written to these addresses
+                if all((base + i * 4) in memory_model for i in range(4)):
+                    results = await wb_burst_read(dut, base)
+                    for i, got in enumerate(results):
+                        addr = base + i * 4
+                        expected = memory_model[addr]
+                        assert got == expected, \
+                            f"Op {op_num} burst read @ 0x{addr:03X}: " \
+                            f"expected 0x{expected:08X}, got 0x{got:08X}"
+        else:
+            addr = rng.randrange(0, 4096, 4)
+            if is_write:
+                data = rng.randint(0, 0xFFFFFFFF)
+                await wb_single_write(dut, addr, data)
+                memory_model[addr] = data
+            else:
+                if addr in memory_model:
+                    got = await wb_single_read(dut, addr)
+                    expected = memory_model[addr]
+                    assert got == expected, \
+                        f"Op {op_num} single read @ 0x{addr:03X}: " \
+                        f"expected 0x{expected:08X}, got 0x{got:08X}"
+
+    monitor.check()
+    dut._log.info(f"Random mixed: {NUM_OPS} operations, "
+                  f"{len(memory_model)} addresses in model")
+
+
+# ===========================================================================
+# Coverage-targeted tests below.
+#
+# These tests drive AHB response signals (hready, hresp) manually instead
+# of using AHBLiteSlaveRAM, to exercise error paths and wait-state logic
+# that the slave RAM never triggers.
+# ===========================================================================
+
+async def reset_dut_manual_ahb(dut, cycles=5):
+    """Reset with manual AHB signal control (no AHBLiteSlaveRAM)."""
+    dut.hresetn.value = 0
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.wb_we.value  = 0
+    dut.wb_adr.value = 0
+    dut.wb_datwr.value = 0
+    dut.wb_sel.value = 0
+    dut.wb_cti.value = CTI_CLASSIC
+    dut.wb_bte.value = BTE_LINEAR
+    # Drive AHB slave responses manually
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+    dut.hrdata.value = 0
+    await ClockCycles(dut.hclk, cycles)
+    dut.hresetn.value = 1
+    await ClockCycles(dut.hclk, 2)
+
+
+# ===========================================================================
+# Test: AHB error response on single write (covers SINGLE_DATA error path)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_error_single_write(dut):
+    """HRESP=1 during single write data phase should produce WB err."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Start a single write
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_adr.value = 0x100
+    dut.wb_datwr.value = 0xDEADBEEF
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+
+    # Wait for bridge to enter data phase (S_ADDR -> S_SINGLE_DATA)
+    # S_IDLE->S_ADDR on first edge, S_ADDR->S_SINGLE_DATA when HREADY=1
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA (HREADY=1)
+
+    # Now inject AHB two-cycle error: cycle 1: HRESP=1, HREADY=0
+    dut.hresp.value  = 1
+    dut.hready.value = 0
+    await RisingEdge(dut.hclk)
+
+    # Cycle 2: HRESP=1, HREADY=1 -> error completes
+    dut.hresp.value  = 1
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)
+
+    # Check WB error was asserted
+    assert dut.wb_err.value == 1, "Expected wb_err=1 on AHB error response"
+    assert dut.wb_ack.value == 0, "Expected wb_ack=0 during error"
+
+    # Deassert and return to idle
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.hresp.value  = 0
+    await RisingEdge(dut.hclk)
+
+    # Verify bridge returns to idle
+    assert int(dut.htrans.value) == HTRANS_IDLE, "Bridge should return to IDLE after error"
+
+
+# ===========================================================================
+# Test: AHB error response on single read
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_error_single_read(dut):
+    """HRESP=1 during single read data phase should produce WB err."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 0
+    dut.wb_adr.value = 0x200
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA
+
+    # Two-cycle error
+    dut.hresp.value  = 1
+    dut.hready.value = 0
+    await RisingEdge(dut.hclk)
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)
+
+    assert dut.wb_err.value == 1, "Expected wb_err=1"
+    assert dut.wb_ack.value == 0, "Expected wb_ack=0"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.hresp.value  = 0
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: AHB error mid-burst (covers BURST_PIPE error path)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_error_mid_burst(dut):
+    """HRESP=1 during burst should abort burst and produce WB err."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Start a burst write
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_adr.value = 0x100
+    dut.wb_datwr.value = 0x11111111
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_INCR
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> BURST_PIPE (beat_count=1)
+
+    # Let first beat ACK normally
+    await RisingEdge(dut.hclk)  # BURST_PIPE: ACK beat 0, beat_count->2
+    assert dut.wb_ack.value == 1, "Expected ACK for beat 0"
+
+    # Advance WB to next beat
+    dut.wb_adr.value = 0x104
+    dut.wb_datwr.value = 0x22222222
+
+    # Now inject error on second beat's data phase
+    dut.hresp.value  = 1
+    dut.hready.value = 0
+    await RisingEdge(dut.hclk)  # First cycle of error
+
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)  # Second cycle: error completes
+
+    assert dut.wb_err.value == 1, "Expected wb_err=1 on burst error"
+    assert dut.wb_ack.value == 0, "Expected wb_ack=0 during error"
+
+    # Bridge should abort to idle
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.hresp.value  = 0
+    dut.wb_cti.value = CTI_CLASSIC
+    await RisingEdge(dut.hclk)
+
+    assert int(dut.htrans.value) == HTRANS_IDLE, "Bridge should return to IDLE after burst error"
+
+
+# ===========================================================================
+# Test: AHB error on last burst beat (covers BURST_LAST error path)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_error_burst_last(dut):
+    """HRESP=1 during final burst data phase should produce WB err."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Drive burst -- let beats 0,1,2 succeed, error on beat 3
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_INCR
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+
+    beat_addrs = [0x300, 0x304, 0x308, 0x30C]
+    beat_data  = [0xAA, 0xBB, 0xCC, 0xDD]
+
+    dut.wb_adr.value = beat_addrs[0]
+    dut.wb_datwr.value = beat_data[0]
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> BURST_PIPE
+
+    # Beats 0, 1, 2: ACK normally
+    for i in range(3):
+        await RisingEdge(dut.hclk)
+        assert dut.wb_ack.value == 1, f"Expected ACK for beat {i}"
+        if i < 2:
+            dut.wb_adr.value = beat_addrs[i + 1]
+            dut.wb_datwr.value = beat_data[i + 1]
+            dut.wb_cti.value = CTI_INCR
+        else:
+            dut.wb_adr.value = beat_addrs[3]
+            dut.wb_datwr.value = beat_data[3]
+            dut.wb_cti.value = CTI_EOB
+
+    # Now in BURST_LAST -- inject error
+    dut.hresp.value  = 1
+    dut.hready.value = 0
+    await RisingEdge(dut.hclk)
+
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)
+
+    assert dut.wb_err.value == 1, "Expected wb_err=1 on final burst beat error"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.hresp.value  = 0
+    dut.wb_cti.value = CTI_CLASSIC
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: AHB wait states in address phase (covers S_ADDR HREADY=0)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_wait_state_addr_phase(dut):
+    """HREADY=0 in address phase should hold NONSEQ until accepted."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_adr.value = 0x400
+    dut.wb_datwr.value = 0xFEEDFACE
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+
+    # Insert 3 wait states in the address phase
+    dut.hready.value = 0
+    for _ in range(3):
+        await RisingEdge(dut.hclk)
+        assert int(dut.htrans.value) == HTRANS_NONSEQ, \
+            "Bridge should maintain NONSEQ during addr wait states"
+
+    # Accept the address
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA
+
+    # Data phase -- complete normally
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1, "Expected wb_ack after wait states"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: AHB wait states in data phase (covers SINGLE_DATA HREADY=0)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_wait_state_data_phase(dut):
+    """HREADY=0 in data phase should delay WB ack."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 0
+    dut.wb_adr.value = 0x500
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+    dut.hrdata.value = 0xCAFEBABE
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA
+
+    # Insert 2 wait states in data phase
+    dut.hready.value = 0
+    for _ in range(2):
+        await RisingEdge(dut.hclk)
+        assert dut.wb_ack.value == 0, "No ACK during wait states"
+
+    # Complete data phase
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1, "Expected wb_ack after data wait states"
+    assert int(dut.wb_datrd.value) == 0xCAFEBABE, "Read data mismatch"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: AHB wait states during burst (covers BURST_PIPE HREADY=0)
+# ===========================================================================
+@cocotb.test()
+async def test_ahb_wait_state_burst_pipe(dut):
+    """HREADY=0 during burst pipe phase should delay ACK but burst continues."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_INCR
+    dut.hready.value = 1
+    dut.hresp.value  = 0
+    dut.wb_adr.value = 0x600
+    dut.wb_datwr.value = 0x11111111
+
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> BURST_PIPE
+
+    # Beat 0: insert wait state before ACK
+    dut.hready.value = 0
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 0, "No ACK during burst wait state"
+    assert int(dut.htrans.value) == HTRANS_SEQ, "Should maintain SEQ during wait"
+
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1, "ACK for beat 0 after wait state"
+
+    # Beats 1, 2: normal
+    dut.wb_adr.value = 0x604
+    dut.wb_datwr.value = 0x22222222
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1, "ACK for beat 1"
+
+    dut.wb_adr.value = 0x608
+    dut.wb_datwr.value = 0x33333333
+    dut.wb_cti.value = CTI_INCR
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1, "ACK for beat 2"
+
+    # Beat 3: final
+    dut.wb_adr.value = 0x60C
+    dut.wb_datwr.value = 0x44444444
+    dut.wb_cti.value = CTI_EOB
+    await RisingEdge(dut.hclk)  # BURST_LAST
+    assert dut.wb_ack.value == 1, "ACK for beat 3"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    dut.wb_cti.value = CTI_CLASSIC
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: WB request without HREADY (covers IDLE with wb_request && !mHREADY)
+# ===========================================================================
+@cocotb.test()
+async def test_wb_request_hready_low(dut):
+    """WB request when HREADY=0 should not start transfer."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Hold HREADY low
+    dut.hready.value = 0
+
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_adr.value = 0x700
+    dut.wb_datwr.value = 0xAAAAAAAA
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+
+    # Wait a few cycles -- bridge should stay in IDLE
+    for _ in range(3):
+        await RisingEdge(dut.hclk)
+        assert int(dut.htrans.value) == HTRANS_IDLE, \
+            "Bridge should not start transfer when HREADY=0"
+        assert dut.wb_ack.value == 0, "No ACK when bus is busy"
+
+    # Release HREADY -- now transfer should proceed
+    dut.hready.value = 1
+    await RisingEdge(dut.hclk)  # IDLE -> ADDR
+    await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA
+    await RisingEdge(dut.hclk)  # SINGLE_DATA: ACK
+    assert dut.wb_ack.value == 1, "Expected ACK after HREADY released"
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: Toggle mHREADY 0->1 and 1->0 (coverage toggle target)
+# ===========================================================================
+@cocotb.test()
+async def test_hready_toggle(dut):
+    """Exercise HREADY toggling to improve toggle coverage."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Toggle HREADY multiple times
+    for _ in range(5):
+        dut.hready.value = 0
+        await RisingEdge(dut.hclk)
+        dut.hready.value = 1
+        await RisingEdge(dut.hclk)
+
+    # Do a transfer to verify bridge still works
+    dut.wb_cyc.value = 1
+    dut.wb_stb.value = 1
+    dut.wb_we.value  = 1
+    dut.wb_adr.value = 0x800
+    dut.wb_datwr.value = 0x55555555
+    dut.wb_sel.value = 0xF
+    dut.wb_cti.value = CTI_CLASSIC
+
+    await RisingEdge(dut.hclk)
+    await RisingEdge(dut.hclk)
+    await RisingEdge(dut.hclk)
+    assert dut.wb_ack.value == 1
+
+    dut.wb_cyc.value = 0
+    dut.wb_stb.value = 0
+    await RisingEdge(dut.hclk)
+
+
+# ===========================================================================
+# Test: Use upper address bits to improve toggle coverage
+# ===========================================================================
+@cocotb.test()
+async def test_upper_address_toggle(dut):
+    """Exercise upper address bits for toggle coverage."""
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut_manual_ahb(dut)
+
+    # Use addresses with upper bits set
+    addresses = [0x00001000, 0xFFFFF000, 0xAAAAA000, 0x55555000]
+
+    for addr in addresses:
+        dut.wb_cyc.value = 1
+        dut.wb_stb.value = 1
+        dut.wb_we.value  = 1
+        dut.wb_adr.value = addr
+        dut.wb_datwr.value = addr
+        dut.wb_sel.value = 0xF
+        dut.wb_cti.value = CTI_CLASSIC
+        dut.hready.value = 1
+
+        await RisingEdge(dut.hclk)  # IDLE -> ADDR
+        await RisingEdge(dut.hclk)  # ADDR -> SINGLE_DATA
+        await RisingEdge(dut.hclk)  # ACK
+        assert dut.wb_ack.value == 1
+
+        dut.wb_cyc.value = 0
+        dut.wb_stb.value = 0
+        await RisingEdge(dut.hclk)
