@@ -27,6 +27,8 @@ ${ETHMAC_IP_DIR}/rtl/verilog/eth_txstatem.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_patches/eth_spram_256x32.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_patches/eth_wishbone.v
 ${ETHMAC_IP_DIR}/rtl/verilog/eth_top.v
+${CMSDK_DIR}/logical/models/memories/cmsdk_fpga_sram.v
+${ETHMAC_AHB_HOME}/src/rtl/fpga/ethmac_sram.v
 ${ETHMAC_AHB_HOME}/src/rtl/ahb3lite_wb_bridge/ahb3lite_to_wb.v
 ${ETHMAC_AHB_HOME}/src/rtl/wb_to_ahb3lite.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_ahb.v

@@ -39,6 +39,7 @@ VERBOSITY   ?= UVM_MEDIUM
 VCS  = $(VCS_HOME)/bin/vcs
 
 VCS_FLAGS  = -full64 -sverilog
+VCS_FLAGS += -ntb_opts uvm-1.2
 VCS_FLAGS += -timescale=1ns/1ps
 VCS_FLAGS += -l $(SIM_DIR)/compile.log
 VCS_FLAGS += -o $(SIM_DIR)/simv
@@ -90,7 +91,7 @@ SIM_FLAGS  = +UVM_TESTNAME=$(TEST)
 SIM_FLAGS += +UVM_VERBOSITY=$(VERBOSITY)
 SIM_FLAGS += -cm line+cond+tgl+fsm+branch
 SIM_FLAGS += -cm_dir $(SIM_DIR)/simv.vdb
-SIM_FLAGS += -l $(SIM_DIR)/$(TEST).log
+SIM_FLAGS += -l $(TEST).log
 
 ifneq ($(SEED),random)
   SIM_FLAGS += +ntb_random_seed=$(SEED)

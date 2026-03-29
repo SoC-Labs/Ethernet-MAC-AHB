@@ -140,20 +140,21 @@ module test_top;
   assign dut_hready = ahb_if.slave_if[0].hready;
 
   // DUT master outputs -> VIP master_if[0] (passive monitor)
-  // Use always_comb to avoid structural/procedural driver conflict
-  // with the VIP's internal procedural drivers on master_if signals.
-  always_comb begin
-    ahb_if.master_if[0].haddr   = dut_haddr;
-    ahb_if.master_if[0].htrans  = dut_htrans;
-    ahb_if.master_if[0].hburst  = dut_hburst;
-    ahb_if.master_if[0].hsize   = dut_hsize;
-    ahb_if.master_if[0].hprot   = dut_hprot;
-    ahb_if.master_if[0].hwrite  = dut_hwrite;
-    ahb_if.master_if[0].hwdata  = dut_hwdata;
-    ahb_if.master_if[0].hgrant  = 1'b1; // AHB-Lite: always granted
-    ahb_if.master_if[0].hready  = dut_hready;
-    ahb_if.master_if[0].hresp   = ahb_if.slave_if[0].hresp;
-    ahb_if.master_if[0].hrdata  = dut_hrdata;
+  // Use force to override the VIP clocking block output drivers on
+  // master_if signals, which cannot coexist with assign or always_comb.
+  initial begin
+    force ahb_if.master_if[0].haddr   = dut_haddr;
+    force ahb_if.master_if[0].htrans  = dut_htrans;
+    force ahb_if.master_if[0].hburst  = dut_hburst;
+    force ahb_if.master_if[0].hsize   = dut_hsize;
+    force ahb_if.master_if[0].hprot   = dut_hprot;
+    force ahb_if.master_if[0].hwrite  = dut_hwrite;
+    force ahb_if.master_if[0].hwdata  = dut_hwdata;
+    force ahb_if.master_if[0].hlock   = 1'b0;  // AHB-Lite: no lock
+    force ahb_if.master_if[0].hgrant  = 1'b1;  // AHB-Lite: always granted
+    force ahb_if.master_if[0].hready  = dut_hready;
+    force ahb_if.master_if[0].hresp   = ahb_if.slave_if[0].hresp;
+    force ahb_if.master_if[0].hrdata  = dut_hrdata;
   end
 
   // ---------------------------------------------------------------
@@ -179,6 +180,15 @@ module test_top;
     .wb_cti         (wb_if.cti),
     .state          (u_dut.state)
   );
+
+  // ---------------------------------------------------------------
+  // Debug: print AHB write data timing (strobe = after all updates)
+  // ---------------------------------------------------------------
+  always @(posedge clk) begin
+    if (rst_n && $time >= 230 && $time <= 360)
+      $strobe("DBG T=%0t ST=%0d HTRANS=%b HADDR=%h DUT_HWDATA=%h WB_ADR=%h WB_DAT_O=%h HSEL=%b CYC=%b STB=%b ACK=%b",
+               $time, u_dut.state, dut_htrans, dut_haddr, dut_hwdata, wb_if.adr, wb_if.dat_o, dut_hsel, wb_if.cyc, wb_if.stb, wb_if.ack);
+  end
 
   // ---------------------------------------------------------------
   // Waveform dumping

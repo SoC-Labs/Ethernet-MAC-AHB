@@ -19,12 +19,11 @@ COMPILE_ARGS += +incdir+$(ETHMAC_RTL)
 COMPILE_ARGS += +define+ETH_WISHBONE_B3
 
 # RAM selection — all defines below are OFF by default in eth_defines.v,
-# which selects the generic behavioural RAM (reg-based) for both the BD
-# SPRAM and the TX/RX FIFOs.  This is the correct choice for simulation.
-# To target a specific technology, uncomment ONE of the following:
-#   COMPILE_ARGS += +define+ETH_XILINX_RAMB4        # Xilinx RAMB4 for BD SPRAM
-#   COMPILE_ARGS += +define+ETH_VIRTUAL_SILICON_RAM  # VS ASIC RAM for BD SPRAM
-#   COMPILE_ARGS += +define+ETH_ARTISAN_RAM          # Artisan ASIC RAM for BD SPRAM
+# which selects the generic behavioural RAM (reg-based) for the TX/RX FIFOs.
+# The BD SPRAM implementation is now selected via the ethmac_sram wrapper
+# (see src/rtl/ethmac_patches/README.md). For simulation, the generic
+# variant (src/rtl/generic/ethmac_sram.v) is used.
+# To target Xilinx FIFOs, uncomment:
 #   COMPILE_ARGS += +define+ETH_FIFO_XILINX          # Xilinx distributed RAM for FIFOs
 
 # Source files: testbench wrapper
@@ -65,6 +64,9 @@ VERILOG_SOURCES += $(ETHMAC_RTL)/eth_fifo.v
 # (see src/rtl/ethmac_patches/README.md)
 VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_spram_256x32.v
 VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_wishbone.v
+
+# SRAM wrapper — generic (reg-based) for simulation
+VERILOG_SOURCES += $(PWD)/../../src/rtl/generic/ethmac_sram.v
 
 TOPLEVEL = tb_ethmac_ahb
 MODULE   = test_ethmac_ahb

@@ -28,6 +28,9 @@ class wb_master_monitor extends uvm_monitor;
   endfunction
 
   virtual task run_phase(uvm_phase phase);
+    // Wait for reset to deassert before monitoring
+    @(posedge vif.rst_n);
+
     forever begin
       wb_master_transaction tr;
       collect_transaction(tr);

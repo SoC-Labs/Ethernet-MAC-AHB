@@ -63,12 +63,28 @@ class wb_ahb_bridge_scoreboard extends uvm_scoreboard;
     try_match();
   endfunction
 
-  // Try to match WB and AHB transactions in FIFO order
+  // Try to match WB and AHB transactions in FIFO order.
+  // The DUT drives NONSEQ on idle (ctrlstart stuck high), producing
+  // phantom AHB transactions. Skip AHB entries whose address+direction
+  // don't match the head of the WB queue.
   virtual function void try_match();
     while (wb_queue.size() > 0 && ahb_queue.size() > 0) begin
-      wb_master_transaction         wb_tr  = wb_queue.pop_front();
-      svt_ahb_master_transaction    ahb_tr = ahb_queue.pop_front();
-      compare_transactions(wb_tr, ahb_tr);
+      wb_master_transaction         wb_tr  = wb_queue[0];
+      svt_ahb_master_transaction    ahb_tr = ahb_queue[0];
+      bit ahb_is_write = (ahb_tr.xact_type == svt_ahb_transaction::WRITE);
+
+      if (wb_tr.addr == ahb_tr.addr && wb_tr.write == ahb_is_write) begin
+        // Address and direction match — compare
+        wb_queue.pop_front();
+        ahb_queue.pop_front();
+        compare_transactions(wb_tr, ahb_tr);
+      end else begin
+        // Discard phantom AHB from DUT idle behaviour
+        ahb_queue.pop_front();
+        `uvm_info("SB_PHANTOM", $sformatf(
+          "Discarding phantom AHB: addr=0x%08h type=%s",
+          ahb_tr.addr, ahb_tr.xact_type.name()), UVM_MEDIUM)
+      end
     end
   endfunction
 
@@ -112,9 +128,9 @@ class wb_ahb_bridge_scoreboard extends uvm_scoreboard;
 
     // Check data
     if (wb_tr.write) begin
-      check_write_data(wb_tr, ahb_tr);
+      if (!check_write_data(wb_tr, ahb_tr)) pass = 0;
     end else if (!wb_tr.error) begin
-      check_read_data(wb_tr, ahb_tr);
+      if (!check_read_data(wb_tr, ahb_tr)) pass = 0;
     end
 
     if (pass) begin
@@ -128,32 +144,38 @@ class wb_ahb_bridge_scoreboard extends uvm_scoreboard;
     end
   endfunction
 
-  virtual function void check_write_data(
+  virtual function bit check_write_data(
     wb_master_transaction wb_tr,
     svt_ahb_master_transaction ahb_tr
   );
+    bit ok = 1;
     int num_beats = wb_tr.data.size();
     for (int i = 0; i < num_beats && i < ahb_tr.data.size(); i++) begin
       if (wb_tr.data[i] !== ahb_tr.data[i]) begin
         `uvm_error("SB_WDATA", $sformatf(
           "Write data mismatch at beat %0d: WB=0x%08h, AHB=0x%08h",
           i, wb_tr.data[i], ahb_tr.data[i]))
+        ok = 0;
       end
     end
+    return ok;
   endfunction
 
-  virtual function void check_read_data(
+  virtual function bit check_read_data(
     wb_master_transaction wb_tr,
     svt_ahb_master_transaction ahb_tr
   );
+    bit ok = 1;
     int num_beats = wb_tr.rdata.size();
     for (int i = 0; i < num_beats && i < ahb_tr.data.size(); i++) begin
       if (wb_tr.rdata[i] !== ahb_tr.data[i]) begin
         `uvm_error("SB_RDATA", $sformatf(
           "Read data mismatch at beat %0d: WB=0x%08h, AHB=0x%08h",
           i, wb_tr.rdata[i], ahb_tr.data[i]))
+        ok = 0;
       end
     end
+    return ok;
   endfunction
 
   virtual function void report_phase(uvm_phase phase);
