@@ -15,3 +15,4 @@ dashboard.txt
 asserts.txt
 .fsm.sch.verilog.xml
 uvm/*/csrc
+vc_hdrs.h
