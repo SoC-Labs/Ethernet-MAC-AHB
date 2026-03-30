@@ -111,19 +111,19 @@ class ahb_wb_bridge_scoreboard extends uvm_scoreboard;
       pass = 0;
     end
 
-    // Check data
+    // Check data (compare lower 32 bits only - bridge is 32-bit)
     if (wb_tr.write) begin
-      if (ahb_tr.data.size() > 0 && ahb_tr.data[0] !== wb_tr.wdata) begin
+      if (ahb_tr.data.size() > 0 && ahb_tr.data[0][31:0] !== wb_tr.wdata) begin
         `uvm_error("SB_WDATA", $sformatf(
           "Write data mismatch: AHB=0x%08h, WB=0x%08h",
-          ahb_tr.data[0], wb_tr.wdata))
+          ahb_tr.data[0][31:0], wb_tr.wdata))
         pass = 0;
       end
     end else if (!wb_tr.error) begin
-      if (ahb_tr.data.size() > 0 && ahb_tr.data[0] !== wb_tr.rdata) begin
+      if (ahb_tr.data.size() > 0 && ahb_tr.data[0][31:0] !== wb_tr.rdata) begin
         `uvm_error("SB_RDATA", $sformatf(
           "Read data mismatch: AHB=0x%08h, WB=0x%08h",
-          ahb_tr.data[0], wb_tr.rdata))
+          ahb_tr.data[0][31:0], wb_tr.rdata))
         pass = 0;
       end
     end

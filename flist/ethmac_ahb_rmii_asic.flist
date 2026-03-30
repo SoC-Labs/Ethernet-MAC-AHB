@@ -28,7 +28,7 @@ ${ETHMAC_AHB_HOME}/src/rtl/ethmac_patches/eth_spram_256x32.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_patches/eth_wishbone.v
 ${ETHMAC_IP_DIR}/rtl/verilog/eth_top.v
 ${ETHMAC_AHB_HOME}/src/rtl/asic/ethmac_sram.v
-${ETHMAC_AHB_HOME}/src/rtl/ahb3lite_wb_bridge/ahb3lite_to_wb.v
-${ETHMAC_AHB_HOME}/src/rtl/wb_to_ahb3lite.v
+${ETHMAC_AHB_HOME}/src/rtl/bridges/ahb3lite_to_wb.v
+${ETHMAC_AHB_HOME}/src/rtl/bridges/wb_to_ahb3lite.v
 ${ETHMAC_AHB_HOME}/src/rtl/rmii_to_mii.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_ahb_rmii.v

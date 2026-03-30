@@ -78,7 +78,7 @@ VCS_FLAGS += +libext+.svp+.sv+.svi+.svh
 
 # DUT source and SVA properties (compiled before top.sv)
 # Note: uvm_pkg.sv, svt_ahb.uvm.pkg, and svt_ahb_if.svi are `included from top.sv
-VCS_FLAGS += $(RTL_DIR)/wb_to_ahb3lite.v
+VCS_FLAGS += $(RTL_DIR)/bridges/wb_to_ahb3lite.v
 VCS_FLAGS += $(FORMAL_DIR)/wb_to_ahb3lite_props.sv
 
 # Top-level testbench (includes wb_master_if.sv and wb_ahb_bridge_pkg.sv)

@@ -12,12 +12,12 @@ cover: depth 80
 smtbmc z3
 
 [script]
-read -formal -sv ../../src/rtl/wb_to_ahb3lite.v
+read -formal -sv ../../src/rtl/bridges/wb_to_ahb3lite.v
 read -formal -sv wb_to_ahb3lite_props.sv
 read -formal -sv wb_to_ahb3lite_formal_top.sv
 prep -top wb_to_ahb3lite_formal_top
 
 [files]
-../../src/rtl/wb_to_ahb3lite.v
+../../src/rtl/bridges/wb_to_ahb3lite.v
 wb_to_ahb3lite_props.sv
 wb_to_ahb3lite_formal_top.sv

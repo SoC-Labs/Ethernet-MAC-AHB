@@ -74,7 +74,7 @@ VCS_FLAGS += -y $(AMBA_HOME)/sverilog/src/com
 VCS_FLAGS += +libext+.svp+.sv+.svi+.svh
 
 # DUT source
-VCS_FLAGS += $(RTL_DIR)/ahb3lite_wb_bridge/ahb3lite_to_wb.v
+VCS_FLAGS += $(RTL_DIR)/bridges/ahb3lite_to_wb.v
 
 # Top-level testbench (includes wb_slave_if.sv and ahb_wb_bridge_pkg.sv)
 VCS_FLAGS += $(TB_DIR)/top.sv

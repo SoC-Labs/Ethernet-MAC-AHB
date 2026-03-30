@@ -6,7 +6,7 @@
 set ETHMAC_AHB_HOME [file normalize [file dirname [info script]]/../..]
 
 analyze -format verilog \
-    ${ETHMAC_AHB_HOME}/src/rtl/ahb3lite_wb_bridge/ahb3lite_to_wb.v
+    ${ETHMAC_AHB_HOME}/src/rtl/bridges/ahb3lite_to_wb.v
 
 # ── Elaborate ───────────────────────────────────────────────────────────────
 elaborate -top ahb3lite_to_wb

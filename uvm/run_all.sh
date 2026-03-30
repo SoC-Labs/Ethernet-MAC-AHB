@@ -11,8 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 declare -A SUITE_TESTS
 SUITE_TESTS[ahb3lite_to_wb]="ahb_wb_bridge_single_test ahb_wb_bridge_error_test ahb_wb_bridge_wait_state_test ahb_wb_bridge_random_test"
 SUITE_TESTS[wb_to_ahb3lite]="wb_ahb_bridge_single_test wb_ahb_bridge_burst_test wb_ahb_bridge_error_test wb_ahb_bridge_wait_state_test wb_ahb_bridge_random_test"
+SUITE_TESTS[rmii_to_mii]="rmii_mii_tx_test rmii_mii_rx_test rmii_mii_collision_test rmii_mii_random_test"
 
-SUITES=(ahb3lite_to_wb wb_to_ahb3lite)
+SUITES=(ahb3lite_to_wb wb_to_ahb3lite rmii_to_mii)
 
 if [ -n "$1" ]; then
     SUITES=("$1")

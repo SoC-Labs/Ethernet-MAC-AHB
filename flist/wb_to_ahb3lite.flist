@@ -1,2 +1,2 @@
 +incdir+${ETHMAC_AHB_HOME}/src/rtl
-${ETHMAC_AHB_HOME}/src/rtl/wb_to_ahb3lite.v
+${ETHMAC_AHB_HOME}/src/rtl/bridges/wb_to_ahb3lite.v

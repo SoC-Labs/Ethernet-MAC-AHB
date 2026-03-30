@@ -3,7 +3,7 @@ SIM ?= vcs
 
 # Source files
 VERILOG_SOURCES  = $(PWD)/wb_to_ahb3lite_tb.v
-VERILOG_SOURCES += $(PWD)/../../src/rtl/wb_to_ahb3lite.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/bridges/wb_to_ahb3lite.v
 VERILOG_SOURCES += $(PWD)/../../formal/wb_to_ahb3lite/wb_to_ahb3lite_props.sv
 
 # Enable SystemVerilog for SVA assertions

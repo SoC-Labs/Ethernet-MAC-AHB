@@ -101,9 +101,10 @@ These signals connect directly to `eth_top` without any translation:
 
 ### 2. `ahb3lite_to_wb` -- AHB Slave to WISHBONE Slave Bridge
 
-**Source:** `src/rtl/ahb3lite_wb_bridge/ahb3lite_to_wb.v`
-(git submodule from
-[vfinotti/ahb3lite_wb_bridge](https://github.com/vfinotti/ahb3lite_wb_bridge))
+**Source:** `src/rtl/bridges/ahb3lite_to_wb.v`
+(originally from
+[vfinotti/ahb3lite_wb_bridge](https://github.com/vfinotti/ahb3lite_wb_bridge),
+modified -- see `src/rtl/bridges/README.md`)
 
 Translates incoming AHB-Lite slave transactions into outgoing WISHBONE slave
 cycles.  Used on the register-access path so that the CPU can configure the
@@ -129,7 +130,7 @@ Ethernet MAC's register interface.  Burst transfers are not used on this path.
 
 ### 3. `wb_to_ahb3lite` -- WISHBONE Master to AHB Master Bridge
 
-**Source:** `src/rtl/wb_to_ahb3lite.v`
+**Source:** `src/rtl/bridges/wb_to_ahb3lite.v`
 
 Translates the MAC's outgoing WISHBONE B3 master DMA transactions into
 AHB-Lite master transfers.  This is the more complex of the two bridges due to

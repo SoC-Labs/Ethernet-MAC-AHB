@@ -4,7 +4,7 @@
 // Wrapper for OpenCores Ethernet MAC (eth_top) with AHB master and AHB slave
 // interfaces, replacing the original WISHBONE interfaces.
 //
-// Uses ahb3lite_wb_bridge IP for protocol conversion:
+// Uses bridge IP (originally from github.com/vfinotti/ahb3lite_wb_bridge) for protocol conversion:
 // - AHB slave  -> WB slave  (register access) via ahb3lite_to_wb
 // - WB master  -> AHB master (DMA transfers)  via wb_to_ahb3lite
 //-----------------------------------------------------------------------------

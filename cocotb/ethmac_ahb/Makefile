@@ -33,8 +33,8 @@ VERILOG_SOURCES  = $(PWD)/tb_ethmac_ahb.v
 VERILOG_SOURCES += $(PWD)/../../src/rtl/ethmac_ahb.v
 
 # Bridge IPs
-VERILOG_SOURCES += $(PWD)/../../src/rtl/ahb3lite_wb_bridge/ahb3lite_to_wb.v
-VERILOG_SOURCES += $(PWD)/../../src/rtl/wb_to_ahb3lite.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/bridges/ahb3lite_to_wb.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/bridges/wb_to_ahb3lite.v
 
 # OpenCores Ethernet MAC IP — unmodified files from external repo
 VERILOG_SOURCES += $(ETHMAC_RTL)/eth_top.v
