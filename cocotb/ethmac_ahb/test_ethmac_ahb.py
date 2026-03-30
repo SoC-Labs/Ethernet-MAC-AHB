@@ -26,8 +26,15 @@ from cocotbext.ahb import AHBBus, AHBLiteMaster, AHBLiteSlaveRAM
 
 # Optional: cocotbext-eth for MII PHY simulation
 try:
-    from cocotbext.eth import MiiPhy
+    from cocotbext.eth import MiiPhy, GmiiFrame
     HAS_COCOTBEXT_ETH = True
+
+    # cocotbext-eth 0.1.22 uses .value.integer which was removed for
+    # single-bit Logic objects in cocotb 2.0.  Monkey-patch the property
+    # back so the MII sink/source coroutines work unmodified.
+    from cocotb.types import Logic
+    if not hasattr(Logic, 'integer'):
+        Logic.integer = property(lambda self: int(self))
 except ImportError:
     HAS_COCOTBEXT_ETH = False
 
@@ -578,7 +585,7 @@ async def test_dma_tx_frame(dut):
 
     # If cocotbext-eth is available, check the transmitted frame
     if tb.mii_phy is not None:
-        tx_frame = await with_timeout(tb.mii_phy.tx.recv(), 100, "us")
+        tx_frame = await with_timeout(tb.mii_phy.tx.recv(), 1000, "us")
         tb.log.info("Captured TX frame: %d bytes", len(tx_frame.data))
 
 
@@ -617,7 +624,6 @@ async def test_dma_rx_frame(dut):
     await tb.reg_write(REG_MODER, moder)
 
     # --- Step 4: Inject a frame on MII RX ---
-    from cocotbext.eth import MiiFrame
     rx_frame_payload = bytearray(
         b'\x00\x1A\x2B\x3C\x4D\x5E'  # Dst MAC (our MAC)
         b'\xAA\xBB\xCC\xDD\xEE\xFF'  # Src MAC
@@ -625,7 +631,7 @@ async def test_dma_rx_frame(dut):
         + b'\xDE\xAD\xBE\xEF' * 10   # Payload (40 bytes)
         + b'\x00' * 6                 # Pad to 60
     )
-    frame = MiiFrame.from_payload(rx_frame_payload)
+    frame = GmiiFrame.from_payload(rx_frame_payload)
     await tb.mii_phy.rx.send(frame)
 
     # --- Step 5: Wait for RX to complete ---

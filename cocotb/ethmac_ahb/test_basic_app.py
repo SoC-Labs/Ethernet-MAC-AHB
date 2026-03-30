@@ -236,7 +236,7 @@ async def test_app_tx_rx(dut):
     if not HAS_COCOTBEXT_ETH:
         log.warning("cocotbext-eth not installed, skipping RX phase")
     else:
-        from cocotbext.eth import MiiFrame
+        from cocotbext.eth import GmiiFrame
 
         # Re-arm RX BD (may have been consumed by broadcast TX loopback)
         rx_bd_status = await tb.read_bd_status(rx_bd_index)
@@ -257,8 +257,8 @@ async def test_app_tx_rx(dut):
         )
         log.info("Injecting RX frame: %d bytes", len(rx_frame_raw))
 
-        # Inject on MII RX
-        frame = MiiFrame.from_payload(rx_frame_raw)
+        # Inject on MII RX (GmiiFrame adds preamble + CRC)
+        frame = GmiiFrame.from_payload(rx_frame_raw)
         await tb.mii_phy.rx.send(frame)
 
         # Wait for RX interrupt
