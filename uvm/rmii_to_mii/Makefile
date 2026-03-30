@@ -56,6 +56,9 @@ VCS_FLAGS += +incdir+$(RMII_AGENT)
 VCS_FLAGS += +incdir+$(SEQ_DIR)
 VCS_FLAGS += +incdir+$(TEST_DIR)
 
+# Debug (uncomment to enable DUT RX path tracing)
+VCS_FLAGS += +define+DEBUG_RX
+
 # DUT source
 VCS_FLAGS += $(RTL_DIR)/rmii_to_mii.v
 

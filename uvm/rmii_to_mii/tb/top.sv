@@ -55,7 +55,7 @@ module test_top;
   // Interface instances
   // ---------------------------------------------------------------
   mii_if  mii_vif  (.mtx_clk(mtx_clk_w), .mrx_clk(mrx_clk_w), .rst_n(rst_n));
-  rmii_if rmii_vif (.rmii_ref_clk(ref_clk), .rst_n(rst_n));
+  rmii_if rmii_vif (.rmii_ref_clk(ref_clk), .rst_n(rst_n), .phase_ref(mrx_clk_w));
 
   // ---------------------------------------------------------------
   // DUT instantiation
@@ -99,6 +99,22 @@ module test_top;
 `elsif WAVES
   initial begin
     $vcdpluson;
+  end
+`endif
+
+  // ---------------------------------------------------------------
+  // Debug: monitor DUT internals
+  // ---------------------------------------------------------------
+`ifdef DEBUG_RX
+  initial begin
+    @(posedge rst_n);
+    repeat (30) begin
+      @(posedge ref_clk);
+      #1;
+      $display("T=%0t rx_phase=%0b clk_div2=%0b rmii_rxd=%02b crs_dv=%0b | mrxd=%04b mrxdv=%0b | rxd_low=%02b dv_held=%0b",
+        $time, u_dut.rx_phase, u_dut.clk_div2, u_dut.rmii_rxd, u_dut.rmii_crs_dv,
+        u_dut.mrxd, u_dut.mrxdv, u_dut.rx_data_low, u_dut.rx_dv_held);
+    end
   end
 `endif
 

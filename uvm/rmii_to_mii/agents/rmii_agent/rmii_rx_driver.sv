@@ -5,9 +5,12 @@
 // Takes nibble_transaction items and splits each 4-bit nibble into two
 // consecutive 2-bit RMII samples on rmii_rxd, synchronised to rmii_ref_clk.
 //
-// Phase alignment: after reset the DUT's rx_phase starts at 0. The driver
-// skips one rmii_ref_clk cycle so that the first low-nibble drive (NBA)
-// is visible to the DUT when rx_phase=0.
+// Phase alignment: uses phase_ref (= DUT mrx_clk = clk_div2) to
+// synchronise with the DUT's rx_phase counter.  The driver drives the
+// low nibble at the falling edge of phase_ref (DUT rx_phase=1→0 in NBA),
+// so the DUT reads it at the next posedge where rx_phase=0 (capture).
+// The high nibble is driven one rmii_ref_clk cycle later, read by the DUT
+// at the following posedge where rx_phase=1 (assembly).
 //
 // Includes an analysis port to publish driven transactions as the reference
 // for the RX-path scoreboard.
@@ -44,20 +47,18 @@ class rmii_rx_driver extends uvm_driver #(nibble_transaction);
 
     wait (vif.rst_n === 1'b1);
 
-    // Skip one rmii_ref_clk cycle for phase alignment with DUT rx_phase.
-    // After this skip the driver's low-nibble NBA lands on the cycle where
-    // the DUT's rx_phase=0 (capture phase).
-    @(posedge vif.rmii_ref_clk);
-
     forever begin
       seq_item_port.get_next_item(tr);
 
-      // Low nibble (bits [1:0])
-      @(posedge vif.rmii_ref_clk);
+      // Synchronise: wait for falling edge of phase_ref (= negedge mrx_clk).
+      // At this posedge rmii_ref_clk the DUT's rx_phase was 1 (assembly),
+      // so our NBA will be visible at the next posedge where rx_phase=0.
+      @(negedge vif.phase_ref);
       vif.rmii_rxd    <= tr.data[1:0];
       vif.rmii_crs_dv <= tr.enable;
 
-      // High nibble (bits [3:2])
+      // High nibble: one rmii_ref_clk later (DUT rx_phase=0 at this posedge,
+      // NBA visible at next posedge where rx_phase=1 for assembly).
       @(posedge vif.rmii_ref_clk);
       vif.rmii_rxd    <= tr.data[3:2];
       vif.rmii_crs_dv <= tr.enable;

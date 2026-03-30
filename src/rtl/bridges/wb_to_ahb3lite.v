@@ -1,175 +1,352 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Wishbone to AHB3-Lite Bridge
+// wb_to_ahb3lite.v
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Original author: Vitor Finotti (Copyright (c) 2019)
-// Original source: https://github.com/vfinotti/ahb3lite_wb_bridge
+// Wishbone B3 master to AHB3-Lite master bridge.
 //
-// Description:
-//   Bridge for conversion from a Wishbone B3 master interface to an
-//   AHB3-Lite master interface. Inspired by the code at:
-//   https://www.valpont.com/ahb-to-wishbone-and-wishbone-to-ahb-bridges-in-verilog/pst/
+// Converts WISHBONE master transactions (classic and B3 incrementing bursts)
+// into AHB-Lite master transfers with correct pipelined protocol.
 //
-// Modifications (SoCLabs):
-//   - No functional changes to this module.
-//   - Extracted from the original submodule repository into the
-//     ethernet-mac-ahb project for direct source management.
+// Supported WISHBONE cycle types:
+//   CTI = 000  Classic single-beat transfer
+//   CTI = 010  Incrementing burst (4-beat INCR4, linear)
+//   CTI = 111  End-of-burst marker
 //
-///////////////////////////////////////////////////////////////////////////////
-// MIT License
-///////////////////////////////////////////////////////////////////////////////
-// Permission is hereby granted, free of charge, to any person obtaining a copy of
-// this software and associated documentation files (the "Software"), to deal in
-// the Software without restriction, including without limitation the rights to
-// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-// of the Software, and to permit persons to whom the Software is furnished to do
-// so, subject to the following conditions:
+// AHB-Lite protocol compliance:
+//   - Proper address/data phase pipelining
+//   - HBURST stable throughout burst (latched at NONSEQ)
+//   - HTRANS: NONSEQ for first beat, SEQ for continuation, IDLE otherwise
+//   - Two-cycle HRESP error handling
+//   - HPROT driven to sensible default
 //
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-///////////////////////////////////////////////////////////////////////////////
 
 module wb_to_ahb3lite (
-  clk_i,
-  rst_n_i,
+  input          clk_i,
+  input          rst_n_i,
 
-  //// wishbone
-  from_m_wb_adr_o,
-  from_m_wb_sel_o,
-  from_m_wb_we_o,
-  from_m_wb_dat_o,
-  from_m_wb_cyc_o,
-  from_m_wb_stb_o,
-  to_m_wb_ack_i,
-  to_m_wb_err_i,
-  to_m_wb_dat_i,
+  // WISHBONE master side (directly connected to WB master, e.g. eth_top)
+  input  [31:0]  from_m_wb_adr_o,
+  input  [3:0]   from_m_wb_sel_o,    // Unused: bridge always does 32-bit word transfers
+  input          from_m_wb_we_o,
+  input  [31:0]  from_m_wb_dat_o,
+  input          from_m_wb_cyc_o,
+  input          from_m_wb_stb_o,
+  output         to_m_wb_ack_i,
+  output         to_m_wb_err_i,
+  output [31:0]  to_m_wb_dat_i,
 
-  from_m_wb_cti_o,
-  from_m_wb_bte_o,
+  input  [2:0]   from_m_wb_cti_o,
+  input  [1:0]   from_m_wb_bte_o,    // Unused: only linear bursts supported (BTE=00)
 
-  //// to ahb3lite
-  mHSEL,
-  mHSIZE,
-  mHRDATA,
-  mHRESP,
-  mHREADY,
-  mHREADYOUT,
-  mHWRITE,
-  mHBURST,
-  mHADDR,
-  mHTRANS,
-  mHWDATA,
-  mHPROT
+  // AHB3-Lite master side
+  output         mHSEL,
+  output [2:0]   mHSIZE,
+  input  [31:0]  mHRDATA,
+  input          mHRESP,
+  input          mHREADY,
+  output         mHREADYOUT,
+  output         mHWRITE,
+  output [2:0]   mHBURST,
+  output [31:0]  mHADDR,
+  output [1:0]   mHTRANS,
+  output [31:0]  mHWDATA,
+  output [3:0]   mHPROT
 );
 
-input          clk_i;
-input	       rst_n_i;
+  //---------------------------------------------------------------
+  // AHB transfer type encodings
+  //---------------------------------------------------------------
+  localparam [1:0] HTRANS_IDLE   = 2'b00;
+  localparam [1:0] HTRANS_NONSEQ = 2'b10;
+  localparam [1:0] HTRANS_SEQ    = 2'b11;
 
-input  [31:0]  mHRDATA;
-input          mHRESP;
-input          mHREADY;
-output         mHSEL;
-output [2:0]   mHSIZE;
-output         mHWRITE;
-output [2:0]   mHBURST;
-output [31:0]  mHADDR;
-output [1:0]   mHTRANS;
-output [31:0]  mHWDATA;
-output         mHREADYOUT;
-output  [3:0]  mHPROT;
+  //---------------------------------------------------------------
+  // AHB burst type encodings
+  //---------------------------------------------------------------
+  localparam [2:0] HBURST_SINGLE = 3'b000;
+  localparam [2:0] HBURST_INCR4  = 3'b011;
 
-input  [31:0]  from_m_wb_adr_o;
-input  [3:0]   from_m_wb_sel_o;
-input          from_m_wb_we_o;
-input  [31:0]  from_m_wb_dat_o;
-input          from_m_wb_cyc_o;
-input          from_m_wb_stb_o;
-output         to_m_wb_ack_i;
-output         to_m_wb_err_i;
-output [31:0]  to_m_wb_dat_i;
+  //---------------------------------------------------------------
+  // WB B3 Cycle Type Identifier
+  //---------------------------------------------------------------
+  localparam [2:0] CTI_INCR    = 3'b010;
 
-input  [2:0]   from_m_wb_cti_o;
-input  [1:0]   from_m_wb_bte_o;
+  //---------------------------------------------------------------
+  // State machine
+  //
+  //  S_IDLE ──(cyc & stb & HREADY)──► S_ADDR
+  //
+  //  S_ADDR ──(HREADY, single)──────► S_SINGLE_DATA
+  //         ──(HREADY, burst)───────► S_BURST_PIPE
+  //
+  //  S_SINGLE_DATA ──(HREADY)───────► S_IDLE
+  //
+  //  S_BURST_PIPE ──(HREADY, more)──► S_BURST_PIPE  (beat_count++)
+  //               ──(HREADY, last)──► S_BURST_LAST
+  //
+  //  S_BURST_LAST ──(HREADY)────────► S_IDLE
+  //
+  //  Any data state ──(HRESP)───────► S_IDLE (error)
+  //
+  //---------------------------------------------------------------
+  localparam [2:0] S_IDLE        = 3'd0;
+  localparam [2:0] S_ADDR        = 3'd1;
+  localparam [2:0] S_SINGLE_DATA = 3'd2;
+  localparam [2:0] S_BURST_PIPE  = 3'd3;
+  localparam [2:0] S_BURST_LAST  = 3'd4;
 
-//////////////////////////////////
-parameter [1:0] IDLE   = 2'b00,
-                BUSY   = 2'b01,
-                NONSEQ = 2'b10,
-                SEQ    = 2'b11;
-//////////////////////////////////
-reg             ackmask;
-reg             ctrlstart;
-wire            isburst;
-reg             mHREADY_d1;
-//////////////////////////////////
-assign isburst       = (from_m_wb_cti_o == 3'b000) ? 1'b0 : 1'b1;
-assign to_m_wb_dat_i = mHRDATA ;
-assign to_m_wb_ack_i = ackmask & mHREADY & from_m_wb_stb_o;
-assign mHADDR        = (~isburst || (ctrlstart && !ackmask) || !ctrlstart) ? from_m_wb_adr_o
-                        : from_m_wb_adr_o + 3'b100;
-assign mHWDATA       = from_m_wb_dat_o;
-assign mHSIZE        = 3'b010;                                //word
-assign mHBURST       = (ctrlstart && (from_m_wb_cti_o == 3'b010)) ? 3'b011 : 3'b000;
+  //---------------------------------------------------------------
+  // Registered state
+  //---------------------------------------------------------------
+  reg [2:0]  state;
+  reg [2:0]  next_state;
+  reg [31:0] addr_reg;       // Base address (latched at transfer start)
+  reg        write_reg;      // Write direction (latched at transfer start)
+  reg        burst_reg;      // 1 = INCR4 burst, 0 = single
+  reg [1:0]  beat_count;     // Next burst address beat to issue (1-3)
+  reg [31:0] hwdata_reg;     // Registered write data (stable during wait states)
+  reg        idle_wait;      // Suppress phantom requests for 1 cycle after transfer end
 
-assign mHWRITE       = from_m_wb_we_o;
-assign mHTRANS       = (ctrlstart && !ackmask && mHREADY)
-                       ? NONSEQ
-                       : ((ctrlstart && ~to_m_wb_ack_i)
-                       ? NONSEQ
-                       : ( (from_m_wb_cti_o == 3'b010 && ctrlstart) ? SEQ : IDLE ));
-assign to_m_wb_err_i = mHRESP;
-assign mHSEL         = from_m_wb_cyc_o;
-assign mHREADYOUT    = 1'b1;
+  //---------------------------------------------------------------
+  // Combinational output registers
+  //---------------------------------------------------------------
+  reg [1:0]  htrans_comb;
+  reg [31:0] haddr_comb;
+  reg [2:0]  hburst_comb;
+  reg        hwrite_comb;
+  reg        wb_ack_comb;
+  reg        wb_err_comb;
 
-always @(posedge clk_i or negedge rst_n_i)
-begin
-  if(!rst_n_i)
-    mHREADY_d1 <= 1'b0;
-  else
-    mHREADY_d1 <= mHREADY;
-end
+  //---------------------------------------------------------------
+  // WB request detection
+  //---------------------------------------------------------------
+  wire wb_request = from_m_wb_cyc_o & from_m_wb_stb_o;
+  wire wb_burst   = (from_m_wb_cti_o == CTI_INCR);
 
-always @(posedge clk_i or negedge rst_n_i)
-begin
-  if(!rst_n_i)
-    ctrlstart <= 1'b0;
-  else if(mHREADY && !ctrlstart)
-    ctrlstart <= 1'b1;
-  else if(ctrlstart)
-    ctrlstart <= 1'b1;
-  else
-    ctrlstart <= 1'b0;
-end
+  //---------------------------------------------------------------
+  // Fixed AHB outputs
+  //---------------------------------------------------------------
+  assign mHSIZE    = 3'b010;           // Always 32-bit word transfers
+  assign mHPROT    = 4'b0011;          // Privileged data, non-cacheable
+  assign mHSEL     = (state != S_IDLE); // Active when FSM is processing a transfer
+  assign mHREADYOUT = 1'b1;            // Bridge never inserts wait states
 
-always @(posedge clk_i or negedge rst_n_i)
-begin
-  if(!rst_n_i)
-      ackmask <= 1'b0;
-  else if(!from_m_wb_stb_o) // not set if not transmitting anything
-      ackmask <= 1'b0;
-  else if(!ctrlstart && !ackmask) // not set transmission hasn't started and not ackmask yet
-      ackmask <= 1'b0;
-  // else if(ctrlstart && !to_m_wb_ack_i && ~mHREADY) // if core is initialized, previous ack was 0 but target slave is not ready, not set it
-  //     ackmask <= 1'b0;
-  else if(ctrlstart && !to_m_wb_ack_i && mHREADY) // set if core is initialized, previous ack was 0 and target slave is ready
-      ackmask <= 1'b1;
-  else if(ctrlstart && !to_m_wb_ack_i && ~mHREADY_d1 && mHREADY) // set if core is initialized, previous ack was 0 and target slave is ready
-      ackmask <= 1'b1;
-  else if(to_m_wb_ack_i && !isburst)
-      ackmask <= 1'b0;
-  else if(from_m_wb_cti_o == 3'b111 && mHREADY)
-      ackmask <= 1'b0;
-  else
-      ackmask <= 1'b0;
-      // ackmask <= 1'b1;
-end
+  //---------------------------------------------------------------
+  // Data path
+  //
+  // Write data: For single transfers, hwdata_reg is latched in
+  // S_IDLE/S_ADDR and remains stable through S_SINGLE_DATA.
+  // For burst transfers, the pipelined AHB data phases overlap with
+  // WB beat handshakes. The WB master holds each beat's data stable
+  // until ACK, so from_m_wb_dat_o is always the correct data for the
+  // current data phase during S_BURST_PIPE and S_BURST_LAST.
+  //
+  // Read data: HRDATA is valid when HREADY=1 during a data phase.
+  // We pass it through to the WB master simultaneously with ACK.
+  //---------------------------------------------------------------
+  assign mHWDATA      = (state == S_BURST_PIPE || state == S_BURST_LAST)
+                         ? from_m_wb_dat_o : hwdata_reg;
+  assign to_m_wb_dat_i = mHRDATA;
+
+  //---------------------------------------------------------------
+  // Control outputs
+  //---------------------------------------------------------------
+  assign mHTRANS      = htrans_comb;
+  assign mHADDR       = haddr_comb;
+  assign mHBURST      = hburst_comb;
+  assign mHWRITE      = hwrite_comb;
+  assign to_m_wb_ack_i = wb_ack_comb;
+  assign to_m_wb_err_i = wb_err_comb;
+
+  //---------------------------------------------------------------
+  // Combinational next-state and output logic
+  //---------------------------------------------------------------
+  always @(*) begin
+    // Defaults: idle bus, no acknowledgement
+    next_state  = state;
+    htrans_comb = HTRANS_IDLE;
+    haddr_comb  = addr_reg;
+    hburst_comb = HBURST_SINGLE;
+    hwrite_comb = 1'b0;
+    wb_ack_comb = 1'b0;
+    wb_err_comb = 1'b0;
+
+    case (state)
+      // -----------------------------------------------------------
+      // IDLE: Wait for a WISHBONE request. The AHB spec requires
+      // HREADY=1 before starting a new transfer; in AHB-Lite with
+      // a single master, HREADY is always 1 when the bus is idle.
+      // -----------------------------------------------------------
+      S_IDLE: begin
+        if (wb_request && mHREADY && !idle_wait) begin
+          next_state = S_ADDR;
+        end
+      end
+
+      // -----------------------------------------------------------
+      // ADDR: Drive NONSEQ address phase. Hold until HREADY=1
+      // confirms the slave has accepted the address.
+      // -----------------------------------------------------------
+      S_ADDR: begin
+        htrans_comb = HTRANS_NONSEQ;
+        haddr_comb  = addr_reg;
+        hburst_comb = burst_reg ? HBURST_INCR4 : HBURST_SINGLE;
+        hwrite_comb = write_reg;
+
+        if (mHREADY) begin
+          next_state = burst_reg ? S_BURST_PIPE : S_SINGLE_DATA;
+        end
+      end
+
+      // -----------------------------------------------------------
+      // SINGLE_DATA: Data phase of a single-beat transfer.
+      // - Writes: HWDATA is valid (combinational pass-through).
+      // - Reads:  HRDATA captured when HREADY=1.
+      // -----------------------------------------------------------
+      S_SINGLE_DATA: begin
+        hwrite_comb = write_reg;
+
+        if (mHRESP) begin
+          // Two-cycle AHB error: HRESP=1,HREADY=0 then HRESP=1,HREADY=1
+          if (mHREADY) begin
+            wb_err_comb = 1'b1;
+            next_state  = S_IDLE;
+          end
+        end else if (mHREADY) begin
+          wb_ack_comb = 1'b1;
+          next_state  = S_IDLE;
+        end
+      end
+
+      // -----------------------------------------------------------
+      // BURST_PIPE: Pipelined burst beats.
+      // Simultaneously completes the data phase of the previous beat
+      // and issues the address phase of the next beat (SEQ).
+      //
+      // beat_count tracks which address to issue next (1, 2, 3).
+      // ACK is for the beat whose data phase is completing.
+      // -----------------------------------------------------------
+      S_BURST_PIPE: begin
+        htrans_comb = HTRANS_SEQ;
+        haddr_comb  = addr_reg + {28'd0, beat_count, 2'b00};
+        hburst_comb = HBURST_INCR4;
+        hwrite_comb = write_reg;
+
+        if (mHRESP) begin
+          // Error: cancel remaining burst (drive IDLE per AHB spec)
+          htrans_comb = HTRANS_IDLE;
+          if (mHREADY) begin
+            wb_err_comb = 1'b1;
+            next_state  = S_IDLE;
+          end
+        end else if (mHREADY) begin
+          wb_ack_comb = 1'b1;
+
+          if (beat_count == 2'd3)
+            next_state = S_BURST_LAST;
+          // else: stay in S_BURST_PIPE, beat_count incremented in seq block
+        end
+      end
+
+      // -----------------------------------------------------------
+      // BURST_LAST: Final data phase of a 4-beat burst.
+      // No new address phase (HTRANS=IDLE). ACK the last beat.
+      // -----------------------------------------------------------
+      S_BURST_LAST: begin
+        hwrite_comb = write_reg;
+        hburst_comb = HBURST_INCR4;
+
+        if (mHRESP) begin
+          if (mHREADY) begin
+            wb_err_comb = 1'b1;
+            next_state  = S_IDLE;
+          end
+        end else if (mHREADY) begin
+          wb_ack_comb = 1'b1;
+          next_state  = S_IDLE;
+        end
+      end
+
+      // -----------------------------------------------------------
+      default: begin
+        next_state = S_IDLE;
+      end
+    endcase
+  end
+
+  //---------------------------------------------------------------
+  // Sequential state register and internal state updates
+  //---------------------------------------------------------------
+  always @(posedge clk_i or negedge rst_n_i) begin
+    if (!rst_n_i) begin
+      state      <= S_IDLE;
+      addr_reg   <= 32'd0;
+      write_reg  <= 1'b0;
+      burst_reg  <= 1'b0;
+      beat_count <= 2'b00;
+      hwdata_reg <= 32'd0;
+      idle_wait  <= 1'b0;
+    end else begin
+      state <= next_state;
+      // idle_wait is set when entering S_IDLE from a completed/errored
+      // transfer, and cleared after one cycle. This gives the WB driver
+      // time to update its bus signals, preventing the DUT from latching
+      // stale WB values as phantom requests.
+      if (state != S_IDLE && next_state == S_IDLE)
+        idle_wait <= 1'b1;
+      else
+        idle_wait <= 1'b0;
+
+      case (state)
+        S_IDLE: begin
+          if (wb_request && mHREADY && !idle_wait) begin
+            addr_reg   <= from_m_wb_adr_o;
+            write_reg  <= from_m_wb_we_o;
+            burst_reg  <= wb_burst;
+            beat_count <= 2'd1;
+            hwdata_reg <= from_m_wb_dat_o;
+          end
+        end
+
+        S_ADDR: begin
+          // hwdata_reg retains the value captured in S_IDLE.
+          // No update here: for real transactions, the WB data
+          // hasn't changed. For phantom transactions (stale WB
+          // signals after burst idle), from_m_wb_dat_o may have
+          // gone to zero and would corrupt the held value.
+        end
+
+        S_SINGLE_DATA: begin
+          if (mHRESP && mHREADY) begin
+            // Error on single transfer: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
+          end
+        end
+
+        S_BURST_PIPE: begin
+          if (mHRESP && mHREADY) begin
+            // Error during burst: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
+          end else if (mHREADY) begin
+            beat_count <= beat_count + 2'd1;
+            // Latch next beat's write data
+            hwdata_reg <= from_m_wb_dat_o;
+          end
+        end
+
+        S_BURST_LAST: begin
+          if (mHRESP && mHREADY) begin
+            // Error on last burst beat: clear burst state
+            burst_reg  <= 1'b0;
+            beat_count <= 2'd0;
+          end
+        end
+
+        default: ;
+      endcase
+    end
+  end
 
 endmodule

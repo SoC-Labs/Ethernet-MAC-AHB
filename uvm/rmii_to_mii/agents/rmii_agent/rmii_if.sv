@@ -15,7 +15,8 @@
 
 interface rmii_if (
   input logic rmii_ref_clk,
-  input logic rst_n
+  input logic rst_n,
+  input logic phase_ref       // DUT's mrx_clk (= clk_div2) for RX driver phase sync
 );
 
   // TX side (DUT → PHY)
@@ -28,7 +29,7 @@ interface rmii_if (
 
   modport tx_monitor (input  rmii_ref_clk, rst_n,
                       input  rmii_txd, rmii_tx_en);
-  modport rx_driver  (input  rmii_ref_clk, rst_n,
+  modport rx_driver  (input  rmii_ref_clk, rst_n, phase_ref,
                       output rmii_rxd, rmii_crs_dv);
 
 endinterface

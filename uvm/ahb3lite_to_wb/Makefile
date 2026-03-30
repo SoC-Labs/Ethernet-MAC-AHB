@@ -39,6 +39,7 @@ VCS  = $(VCS_HOME)/bin/vcs
 
 VCS_FLAGS  = -full64 -sverilog
 VCS_FLAGS += -ntb_opts uvm-1.2
+VCS_FLAGS += -xprop=tmerge
 VCS_FLAGS += -timescale=1ns/1ps
 VCS_FLAGS += -l $(SIM_DIR)/compile.log
 VCS_FLAGS += -o $(SIM_DIR)/simv
