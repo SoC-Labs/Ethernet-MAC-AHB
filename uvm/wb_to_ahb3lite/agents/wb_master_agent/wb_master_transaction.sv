@@ -21,6 +21,9 @@ class wb_master_transaction extends uvm_sequence_item;
   rand wb_cycle_type_e  cycle_type;
   rand bit [3:0]        sel;
 
+  // Inter-transaction gap: number of idle clock cycles before this transfer
+  rand int unsigned     idle_cycles;
+
   // Response fields (filled by driver/monitor)
   bit [31:0] rdata[];
   bit        error;
@@ -41,6 +44,10 @@ class wb_master_transaction extends uvm_sequence_item;
     sel == 4'hF;
   }
 
+  constraint c_idle_cycles {
+    idle_cycles inside {[0:3]};
+  }
+
   constraint c_data_size {
     if (cycle_type == WB_CLASSIC) {
       data.size() == 1;
@@ -55,6 +62,7 @@ class wb_master_transaction extends uvm_sequence_item;
     `uvm_field_int(write, UVM_ALL_ON)
     `uvm_field_enum(wb_cycle_type_e, cycle_type, UVM_ALL_ON)
     `uvm_field_int(sel, UVM_ALL_ON)
+    `uvm_field_int(idle_cycles, UVM_ALL_ON)
     `uvm_field_array_int(rdata, UVM_ALL_ON)
     `uvm_field_int(error, UVM_ALL_ON)
   `uvm_object_utils_end

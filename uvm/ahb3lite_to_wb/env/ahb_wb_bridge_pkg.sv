@@ -39,6 +39,7 @@ package ahb_wb_bridge_pkg;
   `include "ahb_write_read_sequence.sv"
   `include "ahb_back_to_back_sequence.sv"
   `include "ahb_mixed_sequence.sv"
+  `include "ahb_gapping_sequence.sv"
 
   // ---------------------------------------------------------------
   // Tests
@@ -47,6 +48,7 @@ package ahb_wb_bridge_pkg;
   `include "ahb_wb_bridge_single_test.sv"
   `include "ahb_wb_bridge_error_test.sv"
   `include "ahb_wb_bridge_wait_state_test.sv"
+  `include "ahb_wb_bridge_gapping_test.sv"
   `include "ahb_wb_bridge_random_test.sv"
 
 endpackage

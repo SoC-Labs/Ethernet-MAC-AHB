@@ -39,8 +39,11 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
 
     forever begin
       seq_item_port.get_next_item(req);
-      `uvm_info("WB_DRV", $sformatf("Driving %s %s to addr 0x%08h",
-        req.cycle_type.name(), req.write ? "WRITE" : "READ", req.addr), UVM_MEDIUM)
+      `uvm_info("WB_DRV", $sformatf("Driving %s %s to addr 0x%08h (gap=%0d)",
+        req.cycle_type.name(), req.write ? "WRITE" : "READ", req.addr, req.idle_cycles), UVM_MEDIUM)
+
+      // Insert inter-transaction gap (idle cycles)
+      repeat (req.idle_cycles) @(vif.drv_cb);
 
       if (req.cycle_type == WB_CLASSIC)
         drive_classic(req);
@@ -107,40 +110,39 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
   endtask
 
   // Drive a 4-beat INCR4 burst WB B3 transfer
+  //
+  // To match real WB master (registered output) timing, ALL next-beat
+  // signals are pre-driven at the ACK detection edge. This keeps the
+  // driver in lock-step with the bridge's pipelined AHB data phases,
+  // preventing phantom transactions caused by the driver falling a
+  // beat behind due to clocking-block scheduling delays.
   virtual task drive_incr4(wb_master_transaction tr);
     int timeout_cnt;
-    bit [31:0] beat_addr;
 
     tr.rdata = new[4];
     tr.error = 1'b0;
 
+    // Drive beat 0 signals before entering the ACK loop
+    @(vif.drv_cb);
+    vif.drv_cb.cyc   <= 1'b1;
+    vif.drv_cb.stb   <= 1'b1;
+    vif.drv_cb.adr   <= tr.addr;
+    vif.drv_cb.we    <= tr.write;
+    vif.drv_cb.sel   <= tr.sel;
+    vif.drv_cb.cti   <= CTI_INCR;
+    vif.drv_cb.bte   <= 2'b00;
+    if (tr.write)
+      vif.drv_cb.dat_o <= tr.data[0];
+
     for (int beat = 0; beat < 4; beat++) begin
-      beat_addr = tr.addr + (beat * 4);
-
-      @(vif.drv_cb);
-      vif.drv_cb.cyc   <= 1'b1;
-      vif.drv_cb.stb   <= 1'b1;
-      vif.drv_cb.adr   <= beat_addr;
-      vif.drv_cb.we    <= tr.write;
-      vif.drv_cb.sel   <= tr.sel;
-      vif.drv_cb.bte   <= 2'b00;
-
-      // CTI: 010 for beats 0-2, 111 for final beat
-      if (beat < 3)
-        vif.drv_cb.cti <= CTI_INCR;
-      else
-        vif.drv_cb.cti <= CTI_EOB;
-
-      if (tr.write)
-        vif.drv_cb.dat_o <= tr.data[beat];
-
       // Wait for ack or err
       timeout_cnt = 0;
       do begin
         @(vif.drv_cb);
         timeout_cnt++;
         if (timeout_cnt >= ack_timeout) begin
-          `uvm_error("WB_DRV", $sformatf("Timeout waiting for ACK/ERR on burst beat %0d to 0x%08h", beat, beat_addr))
+          `uvm_error("WB_DRV", $sformatf("Timeout waiting for ACK/ERR on burst beat %0d to 0x%08h",
+            beat, tr.addr + (beat * 4)))
           drive_idle();
           return;
         end
@@ -156,13 +158,15 @@ class wb_master_driver extends uvm_driver #(wb_master_transaction);
       if (!tr.write)
         tr.rdata[beat] = vif.drv_cb.dat_i;
 
-      // Pre-drive next beat's write data in the same clocking event as
-      // ACK detection. This ensures from_m_wb_dat_o has the correct data
-      // one cycle earlier, matching real register-to-register timing.
-      // Without this, the clocking block NBA region would delay the data
-      // by one cycle, causing HWDATA instability during AHB wait states.
-      if (tr.write && beat < 3)
-        vif.drv_cb.dat_o <= tr.data[beat + 1];
+      // Pre-drive ALL next-beat signals at the ACK detection edge.
+      // This matches real hardware register-to-register timing where
+      // the WB master updates all outputs in a single clock cycle.
+      if (beat < 3) begin
+        vif.drv_cb.adr   <= tr.addr + ((beat + 1) * 4);
+        vif.drv_cb.cti   <= (beat < 2) ? CTI_INCR : CTI_EOB;
+        if (tr.write)
+          vif.drv_cb.dat_o <= tr.data[beat + 1];
+      end
     end
 
     // Return bus to idle

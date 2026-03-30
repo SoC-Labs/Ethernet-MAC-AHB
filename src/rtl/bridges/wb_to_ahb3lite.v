@@ -137,15 +137,29 @@ module wb_to_ahb3lite (
   // Write data: For single transfers, hwdata_reg is latched in
   // S_IDLE/S_ADDR and remains stable through S_SINGLE_DATA.
   // For burst transfers, the pipelined AHB data phases overlap with
-  // WB beat handshakes. The WB master holds each beat's data stable
-  // until ACK, so from_m_wb_dat_o is always the correct data for the
-  // current data phase during S_BURST_PIPE and S_BURST_LAST.
+  // WB beat handshakes. The correct write data appears on
+  // from_m_wb_dat_o combinationally, but this signal may glitch in
+  // the NBA region (e.g. when the WB driver pre-drives the next
+  // beat's data via a clocking-block output). To guarantee AHB
+  // HWDATA stability during slave wait states (HREADY=0), a hold
+  // register captures the data source when HREADY=1 and feeds the
+  // output during stalls.
   //
   // Read data: HRDATA is valid when HREADY=1 during a data phase.
   // We pass it through to the WB master simultaneously with ACK.
   //---------------------------------------------------------------
-  assign mHWDATA      = (state == S_BURST_PIPE || state == S_BURST_LAST)
-                         ? from_m_wb_dat_o : hwdata_reg;
+  wire [31:0] hwdata_live = (state == S_BURST_PIPE || state == S_BURST_LAST)
+                             ? from_m_wb_dat_o : hwdata_reg;
+
+  reg [31:0] hwdata_held;
+  always @(posedge clk_i or negedge rst_n_i) begin
+    if (!rst_n_i)
+      hwdata_held <= 32'd0;
+    else if (mHREADY)
+      hwdata_held <= hwdata_live;
+  end
+
+  assign mHWDATA       = mHREADY ? hwdata_live : hwdata_held;
   assign to_m_wb_dat_i = mHRDATA;
 
   //---------------------------------------------------------------
@@ -331,9 +345,10 @@ module wb_to_ahb3lite (
             beat_count <= 2'd0;
           end else if (mHREADY) begin
             beat_count <= beat_count + 2'd1;
-            // Latch next beat's write data
+            // Only update hwdata_reg for the next beat if mHREADY is high (no wait state)
             hwdata_reg <= from_m_wb_dat_o;
           end
+          // Do NOT update hwdata_reg if mHREADY is low (wait state): data must remain stable
         end
 
         S_BURST_LAST: begin

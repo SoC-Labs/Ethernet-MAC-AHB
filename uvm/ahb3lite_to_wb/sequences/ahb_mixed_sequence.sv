@@ -13,7 +13,7 @@ class ahb_mixed_sequence extends svt_ahb_master_transaction_base_sequence;
   rand int unsigned num_transactions;
 
   constraint c_reasonable {
-    num_transactions inside {[20:200]};
+    num_transactions inside {[20:1000]};
   }
 
   `uvm_object_utils(ahb_mixed_sequence)

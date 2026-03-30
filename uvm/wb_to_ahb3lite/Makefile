@@ -119,7 +119,8 @@ help:
 	@echo "  wb_ahb_bridge_burst_test        - INCR4 burst transfers"
 	@echo "  wb_ahb_bridge_error_test        - AHB error response handling"
 	@echo "  wb_ahb_bridge_wait_state_test   - AHB wait state (backpressure)"
-	@echo "  wb_ahb_bridge_random_test       - Constrained-random mix"
+	@echo "  wb_ahb_bridge_gapping_test      - WB gapping + AHB stalling"
+	@echo "  wb_ahb_bridge_random_test       - Constrained-random mix (1000 txns)"
 	@echo ""
 	@echo "Variables:"
 	@echo "  TEST=<name>                     - Test to run (default: wb_ahb_bridge_single_test)"
@@ -145,12 +146,15 @@ TESTS = wb_ahb_bridge_single_test \
         wb_ahb_bridge_burst_test \
         wb_ahb_bridge_error_test \
         wb_ahb_bridge_wait_state_test \
+        wb_ahb_bridge_gapping_test \
         wb_ahb_bridge_random_test
 
 run_all: compile
 	@fail=0; \
 	for test in $(TESTS); do \
+		echo ""; \
 		echo "======== Running $$test ========"; \
+		echo ""; \
 		if cd $(SIM_DIR) && ./simv +UVM_TESTNAME=$$test +UVM_VERBOSITY=$(VERBOSITY) \
 			-cm line+cond+tgl+fsm+branch -cm_dir simv.vdb \
 			+ntb_random_seed_automatic -l $$test.log; then \

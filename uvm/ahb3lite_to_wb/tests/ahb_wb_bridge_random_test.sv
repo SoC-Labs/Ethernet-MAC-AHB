@@ -12,7 +12,7 @@ class ahb_wb_bridge_random_test extends ahb_wb_bridge_base_test;
 
   `uvm_component_utils(ahb_wb_bridge_random_test)
 
-  int unsigned num_transactions = 200;
+  int unsigned num_transactions = 1000;
 
   function new(string name = "ahb_wb_bridge_random_test", uvm_component parent = null);
     super.new(name, parent);

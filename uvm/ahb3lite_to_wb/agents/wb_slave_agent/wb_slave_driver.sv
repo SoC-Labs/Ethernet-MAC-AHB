@@ -21,6 +21,10 @@ class wb_slave_driver extends uvm_driver;
   // Configuration: number of wait states to insert (0 = immediate ACK)
   int unsigned wait_cycles = 0;
 
+  // Configuration: randomized wait states (overrides fixed wait_cycles)
+  bit          random_wait     = 0;
+  int unsigned max_random_wait = 5;
+
   // Configuration: inject error on specific addresses
   bit inject_errors = 0;
   int unsigned error_after = 0;
@@ -37,6 +41,8 @@ class wb_slave_driver extends uvm_driver;
 
     // Optional configuration
     void'(uvm_config_db#(int unsigned)::get(this, "", "wait_cycles", wait_cycles));
+    void'(uvm_config_db#(bit)::get(this, "", "random_wait", random_wait));
+    void'(uvm_config_db#(int unsigned)::get(this, "", "max_random_wait", max_random_wait));
     void'(uvm_config_db#(bit)::get(this, "", "inject_errors", inject_errors));
     void'(uvm_config_db#(int unsigned)::get(this, "", "error_after", error_after));
   endfunction
@@ -54,11 +60,18 @@ class wb_slave_driver extends uvm_driver;
       if (vif.drv_cb.cyc && vif.drv_cb.stb) begin
         txn_count++;
 
-        // Insert wait states
-        repeat (wait_cycles) begin
-          vif.drv_cb.ack <= 1'b0;
-          vif.drv_cb.err <= 1'b0;
-          @(vif.drv_cb);
+        // Insert wait states (randomized or fixed)
+        begin
+          int unsigned actual_wait;
+          if (random_wait)
+            actual_wait = $urandom_range(0, max_random_wait);
+          else
+            actual_wait = wait_cycles;
+          repeat (actual_wait) begin
+            vif.drv_cb.ack <= 1'b0;
+            vif.drv_cb.err <= 1'b0;
+            @(vif.drv_cb);
+          end
         end
 
         // Check for error injection
