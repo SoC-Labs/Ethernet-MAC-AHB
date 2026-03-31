@@ -276,3 +276,129 @@ async def test_reset_behaviour(dut):
     # Should still be idle
     assert dut.wb_cyc.value == 0, "WB cyc should be 0 after reset release"
     assert dut.wb_stb.value == 0, "WB stb should be 0 after reset release"
+
+
+# ---------------------------------------------------------------------------
+# Test 1.8: Back-to-back read address integrity (pipelining bug detector)
+# ---------------------------------------------------------------------------
+
+async def _wb_slave_memory(dut, mem, log):
+    """Simple WB slave with address-keyed memory model.
+
+    Runs as a cocotb coroutine, responding to WB transactions on the DUT's
+    wb_* signals.  Stores writes and returns previously-stored data on reads.
+    """
+    dut.wb_datrd.value = 0
+    dut.wb_ack.value = 0
+    dut.wb_err.value = 0
+
+    while True:
+        await RisingEdge(dut.hclk)
+        if dut.wb_cyc.value == 1 and dut.wb_stb.value == 1:
+            addr = int(dut.wb_adr.value)
+            if dut.wb_we.value == 1:
+                data = int(dut.wb_datwr.value)
+                mem[addr] = data
+                log.debug("WB MEM WRITE: [0x%08X] = 0x%08X", addr, data)
+            else:
+                data = mem.get(addr, 0)
+                dut.wb_datrd.value = data
+                log.debug("WB MEM READ:  [0x%08X] → 0x%08X", addr, data)
+            dut.wb_ack.value = 1
+        else:
+            dut.wb_ack.value = 0
+
+
+@cocotb.test()
+async def test_back_to_back_read_data_integrity(dut):
+    """1.8: Write unique data to multiple addresses, then read back-to-back
+    using the AHBLiteMaster sequential API.
+
+    Each address must return the data originally written to *that* address,
+    not a stale value from a different transaction.
+    """
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+
+    await reset_dut(dut)
+
+    mem = {}
+    wb_task = cocotb.start_soon(_wb_slave_memory(dut, mem, dut._log))
+    ahb_master = build_ahb_master(dut)
+
+    num_addrs = 8
+    base_addr = 0x2000
+    written = {}
+
+    # Phase 1: Write unique data to each address
+    for i in range(num_addrs):
+        addr = base_addr + (i * 4)
+        data = 0xBEEF0000 | (i * 0x111)
+        resp = await ahb_master.write(addr, data, verbose=True)
+        assert resp[0]["resp"] == 0, f"Write to 0x{addr:08X} failed"
+        written[addr] = data
+
+    dut._log.info("Wrote %d addresses: %s",
+                  num_addrs,
+                  {f"0x{a:08X}": f"0x{d:08X}" for a, d in written.items()})
+
+    # Phase 2: Read them all back-to-back
+    mismatches = []
+    for i in range(num_addrs):
+        addr = base_addr + (i * 4)
+        resp = await ahb_master.read(addr, verbose=True)
+        assert resp[0]["resp"] == 0, f"Read from 0x{addr:08X} failed"
+        read_data = int(resp[0]["data"], 16)
+        expected = written[addr]
+        dut._log.info("Read [0x%08X]: got 0x%08X, expected 0x%08X %s",
+                      addr, read_data, expected,
+                      "✓" if read_data == expected else "✗ MISMATCH")
+        if read_data != expected:
+            mismatches.append((addr, expected, read_data))
+
+    if mismatches:
+        for addr, exp, got in mismatches:
+            dut._log.error("MISMATCH at 0x%08X: expected 0x%08X, got 0x%08X",
+                           addr, exp, got)
+    assert len(mismatches) == 0, \
+        f"{len(mismatches)} read(s) returned wrong data (stale pipeline values)"
+
+
+
+
+@cocotb.test()
+async def test_write_read_interleaved_integrity(dut):
+    """1.9: Interleaved write-read pairs to different addresses.
+
+    Each write is immediately followed by a read to the same address.
+    Verifies the bridge correctly handles the address-phase/data-phase
+    overlap when the direction changes between consecutive transfers.
+    """
+    clock = Clock(dut.hclk, 10, units="ns")
+    cocotb.start_soon(clock.start())
+
+    await reset_dut(dut)
+
+    mem = {}
+    wb_task = cocotb.start_soon(_wb_slave_memory(dut, mem, dut._log))
+    ahb_master = build_ahb_master(dut)
+
+    num_pairs = 6
+    base_addr = 0x3000
+
+    for i in range(num_pairs):
+        addr = base_addr + (i * 4)
+        data = 0xA5A50000 | i
+
+        # Write
+        resp = await ahb_master.write(addr, data)
+        assert resp[0]["resp"] == 0
+
+        # Immediate readback
+        resp = await ahb_master.read(addr)
+        assert resp[0]["resp"] == 0
+        read_data = int(resp[0]["data"], 16)
+        assert read_data == data, \
+            f"Addr 0x{addr:08X}: wrote 0x{data:08X}, read 0x{read_data:08X}"
+
+    dut._log.info("All %d write-read pairs matched", num_pairs)

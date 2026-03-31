@@ -20,6 +20,12 @@
 //     AHB protocol and stalling the bus.
 //   - Added read-data latching so HRDATA remains stable after a Wishbone
 //     acknowledge is deasserted.
+//   - Fixed AHB pipeline address integrity: the bridge now latches the
+//     incoming AHB address phase into a pending register and only drives
+//     it onto the WB bus when the previous WB transaction completes.
+//     Previously, back-to-back AHB transfers would overwrite the WB
+//     address mid-transaction, causing reads/writes to go to the wrong
+//     address.
 //
 ///////////////////////////////////////////////////////////////////////////////
 // MIT License
@@ -100,162 +106,185 @@ input           from_wb_ack_o;
 input           from_wb_err_o;
 
 /////////////////////////////////////////////////////
-reg         NextsHRESP;
-reg         isHRESP;
+// WB bus registers
+reg [31:0]  wb_adr_r;
+reg         wb_we_r;
+reg         wb_cyc_r;
+reg         wb_stb_r;
+reg [ 3:0]  wb_sel_r;
 
-reg         Nextto_wb_cyc_i;
-reg         ito_wb_cyc_i;
-
-reg         Nextto_wb_stb_i;
-reg         ito_wb_stb_i;
-
-reg [ 3:0]  Nextto_wb_sel_i;
-reg [ 3:0]  ito_wb_sel_i;
-
-reg [31:0]  Nextto_wb_adr_i;
-reg [31:0]  ito_wb_adr_i;
-
-reg         Nextto_wb_we_i;
-reg         ito_wb_we_i;
+// AHB address-phase latch: holds the next transfer while the current
+// WB transaction is in progress.  This is the key to correct AHB
+// pipelining — the WB address must not change until the slave ACKs.
+reg [31:0]  pend_addr;
+reg         pend_write;
+reg         pend_valid;    // A new AHB transfer is waiting to start
 
 // Latch read data on WB ack so it remains stable for the AHB data phase
 reg [31:0]  rdata_latch;
 
-// AHB two-cycle error response state
-reg         err_resp_pending;  // High during second cycle of error response
+// AHB error response
+reg         isHRESP;
+reg         err_resp_pending;
+
 /////////////////////////////////////////////////////
-assign to_wb_adr_i   = ito_wb_adr_i;
-assign to_wb_we_i    = ito_wb_we_i;
+// WB outputs
+assign to_wb_adr_i   = wb_adr_r;
+assign to_wb_we_i    = wb_we_r;
 assign to_wb_dat_i   = sHWDATA;
-assign to_wb_sel_i   = ito_wb_sel_i;
+assign to_wb_sel_i   = wb_sel_r;
+assign to_wb_cyc_i   = wb_cyc_r;
+assign to_wb_stb_i   = wb_stb_r;
+
 // Forward live WB data when ack is active; use latched data otherwise
 assign sHRDATA       = (from_wb_ack_o) ? from_wb_dat_o : rdata_latch;
+
 // AHB two-cycle error response:
 //   Cycle 1 (from_wb_err_o): HREADYOUT=0, HRESP=1
 //   Cycle 2 (err_resp_pending): HREADYOUT=1, HRESP=1
-assign sHREADYOUT    = (from_wb_err_o && ito_wb_stb_i) ? 1'b0 :
-                       (err_resp_pending)               ? 1'b1 :
-                       (to_wb_stb_i)                    ? from_wb_ack_o : 1'b1;
-assign sHRESP        = (from_wb_err_o && ito_wb_stb_i) ? 1'b1 :
-                       (err_resp_pending)               ? 1'b1 : isHRESP;
-assign to_wb_cyc_i   = ito_wb_cyc_i;
-assign to_wb_stb_i   = ito_wb_stb_i;
+// HREADYOUT must be low while:
+//   - WB transaction pending ACK (wb_stb_r && !from_wb_ack_o)
+//   - WB error first cycle
+//   - Pending transfer waiting to launch (pend_valid && !wb_completing)
+// HREADYOUT is high when:
+//   - WB ACK arrives (from_wb_ack_o)
+//   - Error response second cycle (err_resp_pending)
+//   - Bus is idle with nothing pending
+assign sHREADYOUT    = (from_wb_err_o && wb_stb_r)  ? 1'b0 :
+                       (err_resp_pending)            ? 1'b1 :
+                       (wb_stb_r && !from_wb_ack_o)  ? 1'b0 :
+                       (wb_stb_r && from_wb_ack_o)   ? 1'b1 :
+                       (pend_valid)                   ? 1'b0 : 1'b1;
 
-always @(*)
+assign sHRESP        = (from_wb_err_o && wb_stb_r) ? 1'b1 :
+                       (err_resp_pending)           ? 1'b1 : isHRESP;
+
+/////////////////////////////////////////////////////
+// Detect a valid AHB address phase
+wire ahb_addr_valid = sHSEL && sHREADY &&
+                      (sHSIZE == 3'b010) &&
+                      (sHTRANS == 2'b10 || sHTRANS == 2'b11);
+
+// Detect IDLE/invalid address phase (used to clear pending state)
+wire ahb_addr_idle  = !sHSEL ||
+                      (sHSEL && sHREADY && (sHTRANS == 2'b00));
+
+// Detect unsupported transfer size (for error response)
+wire ahb_size_err   = sHSEL && sHREADY && (sHSIZE != 3'b010) &&
+                      (sHTRANS != 2'b00);
+
+// WB transaction completing this cycle
+wire wb_completing  = wb_stb_r && from_wb_ack_o;
+wire wb_error       = wb_stb_r && from_wb_err_o;
+
+/////////////////////////////////////////////////////
+always @(posedge clk_i or negedge rst_n_i)
 begin
-  NextsHRESP      = isHRESP;
-  Nextto_wb_cyc_i = ito_wb_cyc_i;
-  Nextto_wb_stb_i = ito_wb_stb_i;
-  Nextto_wb_adr_i = ito_wb_adr_i;
-  Nextto_wb_we_i  = ito_wb_we_i;
-  Nextto_wb_sel_i = ito_wb_sel_i;
-
-  if(sHSEL)
+  if (!rst_n_i)
     begin
-      if(sHREADY)
+      wb_adr_r         <= 32'b0;
+      wb_we_r          <= 1'b0;
+      wb_cyc_r         <= 1'b0;
+      wb_stb_r         <= 1'b0;
+      wb_sel_r         <= 4'b0;
+      pend_addr        <= 32'b0;
+      pend_write       <= 1'b0;
+      pend_valid       <= 1'b0;
+      rdata_latch      <= 32'b0;
+      isHRESP          <= 1'b0;
+      err_resp_pending <= 1'b0;
+    end
+  else if (wb_error)
+    begin
+      // WB error: terminate cycle, start AHB two-cycle error response
+      err_resp_pending <= 1'b1;
+      wb_cyc_r         <= 1'b0;
+      wb_stb_r         <= 1'b0;
+      wb_we_r          <= 1'b0;
+      wb_adr_r         <= 32'b0;
+      wb_sel_r         <= 4'b0;
+      isHRESP          <= 1'b0;
+      // Clear any pending transfer (it was in the error cycle's addr phase)
+      pend_valid       <= 1'b0;
+    end
+  else
+    begin
+      err_resp_pending <= 1'b0;
+
+      // Latch read data when WB ACKs
+      if (from_wb_ack_o)
+        rdata_latch <= from_wb_dat_o;
+
+      // ----------------------------------------------------------
+      // AHB address phase capture: latch new transfer requests
+      // ----------------------------------------------------------
+      if (ahb_addr_valid)
         begin
-          if(sHSIZE != 3'b010)
+          pend_addr  <= sHADDR;
+          pend_write <= sHWRITE;
+          pend_valid <= 1'b1;
+          isHRESP    <= 1'b0;
+        end
+      else if (ahb_size_err)
+        begin
+          isHRESP    <= 1'b1;
+          pend_valid <= 1'b0;
+        end
+      else if (ahb_addr_idle)
+        begin
+          // IDLE or deselected — no new transfer pending
+          // Only clear if we're not holding a transfer that hasn't
+          // been launched yet
+          if (!pend_valid || wb_completing)
             begin
-              Nextto_wb_we_i  = 1'b0;
-              Nextto_wb_cyc_i = 1'b0;
-              Nextto_wb_stb_i = 1'b0;
-              Nextto_wb_adr_i = 32'b0;
-              Nextto_wb_sel_i = 4'b0;
-              if(sHTRANS == 2'b00)
-                NextsHRESP    = 1'b0;
-              else
-                NextsHRESP    = 1'b1;
+              pend_valid <= 1'b0;
+              isHRESP    <= 1'b0;
+            end
+        end
+
+      // ----------------------------------------------------------
+      // WB transaction launch / completion
+      // ----------------------------------------------------------
+      if (wb_completing)
+        begin
+          // Current WB transaction done.  Launch pending if available.
+          if (pend_valid)
+            begin
+              wb_adr_r   <= pend_addr;
+              wb_we_r    <= pend_write;
+              wb_cyc_r   <= 1'b1;
+              wb_stb_r   <= 1'b1;
+              wb_sel_r   <= 4'b1111;
+              pend_valid <= 1'b0;
             end
           else
             begin
-              case(sHTRANS)
-                2'b00:
-                  begin
-                    NextsHRESP      = 1'b0;
-                    Nextto_wb_cyc_i = 1'b0;
-                    Nextto_wb_stb_i = 1'b0;
-                    Nextto_wb_adr_i = 32'b0;
-                    Nextto_wb_sel_i = 4'b0;
-                  end
-                2'b01:
-                  begin
-                    Nextto_wb_cyc_i = 1'b1;
-                    Nextto_wb_stb_i = 1'b0;
-                  end
-                2'b10,2'b11:
-                  begin
-                    NextsHRESP      = 1'b0;
-                    Nextto_wb_cyc_i = 1'b1;
-                    Nextto_wb_stb_i = 1'b1;
-                    Nextto_wb_adr_i = sHADDR;
-                    Nextto_wb_we_i  = sHWRITE;
-                    Nextto_wb_sel_i = 4'b1111;
-                  end
-              endcase
+              // Nothing pending — go idle
+              wb_cyc_r <= 1'b0;
+              wb_stb_r <= 1'b0;
+              wb_we_r  <= 1'b0;
+              wb_adr_r <= 32'b0;
+              wb_sel_r <= 4'b0;
             end
         end
-      else
+      else if (!wb_stb_r && pend_valid)
         begin
-
+          // WB bus is idle and we have a pending transfer — launch it
+          wb_adr_r   <= pend_addr;
+          wb_we_r    <= pend_write;
+          wb_cyc_r   <= 1'b1;
+          wb_stb_r   <= 1'b1;
+          wb_sel_r   <= 4'b1111;
+          pend_valid <= 1'b0;
         end
-    end
-  else
-    begin
-      // HSEL deasserted — this may be a new address phase targeting a
-      // different slave while the current data phase is still in progress.
-      // Keep the Wishbone cycle alive until the slave acknowledges;
-      // only clear state when the WB side is idle or has just acked.
-      if (ito_wb_stb_i && !from_wb_ack_o)
+      else if (!wb_stb_r && !pend_valid)
         begin
-          // Active WB transaction still in progress — hold signals stable
+          // Idle: ensure WB signals are clean
+          wb_cyc_r <= 1'b0;
+          wb_stb_r <= 1'b0;
+          wb_we_r  <= 1'b0;
         end
-      else
-        begin
-          NextsHRESP      = 1'b0;
-          Nextto_wb_we_i  = 1'b0;
-          Nextto_wb_cyc_i = 1'b0;
-          Nextto_wb_stb_i = 1'b0;
-          Nextto_wb_adr_i = 32'b0;
-          Nextto_wb_sel_i = 4'b0;
-        end
-    end
-
-end
-
-always @(posedge clk_i or negedge rst_n_i)
-begin
-  if(!rst_n_i)
-    begin
-      isHRESP          <= 1'b0;
-      ito_wb_cyc_i     <= 1'b0;
-      ito_wb_stb_i     <= 1'b0;
-      ito_wb_adr_i     <= 32'b0;
-      ito_wb_we_i      <= 1'b0;
-      ito_wb_sel_i     <= 4'b0;
-      rdata_latch      <= 32'b0;
-      err_resp_pending <= 1'b0;
-    end
-  else if(from_wb_err_o && ito_wb_stb_i)
-    begin
-      // WB error received: terminate WB cycle, start AHB two-cycle error response
-      err_resp_pending <= 1'b1;
-      ito_wb_cyc_i     <= 1'b0;
-      ito_wb_stb_i     <= 1'b0;
-      ito_wb_we_i      <= 1'b0;
-      ito_wb_adr_i     <= 32'b0;
-      ito_wb_sel_i     <= 4'b0;
-    end
-  else
-    begin
-      err_resp_pending <= 1'b0;
-      isHRESP      <= NextsHRESP;
-      ito_wb_cyc_i <= Nextto_wb_cyc_i;
-      ito_wb_stb_i <= Nextto_wb_stb_i;
-      ito_wb_adr_i <= Nextto_wb_adr_i;
-      ito_wb_we_i  <= Nextto_wb_we_i;
-      ito_wb_sel_i <= Nextto_wb_sel_i;
-      if(from_wb_ack_o)
-        rdata_latch <= from_wb_dat_o;
+      // else: WB transaction in progress, not yet ACK'd — hold stable
     end
 end
 
