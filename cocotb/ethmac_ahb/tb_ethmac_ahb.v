@@ -18,7 +18,7 @@ module tb_ethmac_ahb;
   // Clock and Reset
   // -------------------------------------------------------
   reg         hclk;
-  reg         hresetn;
+  reg         hresetn = 0;
 
   // -------------------------------------------------------
   // AHB Master Port (DMA) — prefix "mst_"
@@ -64,7 +64,7 @@ module tb_ethmac_ahb;
   // -------------------------------------------------------
   // MII Transmit (outputs from DUT, tx_clk input from PHY)
   // -------------------------------------------------------
-  reg         mtx_clk_pad_i;
+  reg         mtx_clk_pad_i = 0;
   wire  [3:0] mtxd_pad_o;
   wire        mtxen_pad_o;
   wire        mtxerr_pad_o;
@@ -72,7 +72,7 @@ module tb_ethmac_ahb;
   // -------------------------------------------------------
   // MII Receive (inputs to DUT from PHY)
   // -------------------------------------------------------
-  reg         mrx_clk_pad_i;
+  reg         mrx_clk_pad_i = 0;
   reg   [3:0] mrxd_pad_i;
   reg         mrxdv_pad_i;
   reg         mrxerr_pad_i;
@@ -164,5 +164,23 @@ module tb_ethmac_ahb;
     $dumpfile("tb_ethmac_ahb.vcd");
     $dumpvars(0, tb_ethmac_ahb);
   end
+
+  // -------------------------------------------------------
+  // Initialise MII common inputs to avoid X during reset
+  // -------------------------------------------------------
+  initial begin
+    mcoll_pad_i = 0;
+    mcrs_pad_i  = 0;
+    md_pad_i    = 1;   // MDIO idle high
+  end
+
+  // MII clocks (mtx_clk_pad_i, mrx_clk_pad_i) are driven by cocotb.
+  // Inverted TX clock: MiiSink samples on rising edge of this = falling
+  // edge of mtx_clk_pad_i, so MAC NBA outputs have settled.
+  wire mtx_clk_inv = ~mtx_clk_pad_i;
+
+  // Inverted RX clock: MiiSource drives data on rising edge of this =
+  // falling edge of mrx_clk_pad_i, giving setup time before next posedge.
+  wire mrx_clk_inv = ~mrx_clk_pad_i;
 
 endmodule

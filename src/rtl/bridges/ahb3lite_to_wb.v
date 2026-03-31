@@ -201,12 +201,23 @@ begin
     end
   else
     begin
-      NextsHRESP      = 1'b0;
-      Nextto_wb_we_i  = 1'b0;
-      Nextto_wb_cyc_i = 1'b0;
-      Nextto_wb_stb_i = 1'b0;
-      Nextto_wb_adr_i = 32'b0;
-      Nextto_wb_sel_i = 3'b0;
+      // HSEL deasserted — this may be a new address phase targeting a
+      // different slave while the current data phase is still in progress.
+      // Keep the Wishbone cycle alive until the slave acknowledges;
+      // only clear state when the WB side is idle or has just acked.
+      if (ito_wb_stb_i && !from_wb_ack_o)
+        begin
+          // Active WB transaction still in progress — hold signals stable
+        end
+      else
+        begin
+          NextsHRESP      = 1'b0;
+          Nextto_wb_we_i  = 1'b0;
+          Nextto_wb_cyc_i = 1'b0;
+          Nextto_wb_stb_i = 1'b0;
+          Nextto_wb_adr_i = 32'b0;
+          Nextto_wb_sel_i = 4'b0;
+        end
     end
 
 end
