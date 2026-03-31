@@ -216,7 +216,48 @@ ethmac_ahb:
   script:
     - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
     - make -C "$WORK_DIR/cocotb/ethmac_ahb"
-  allow_failure: true
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_ahb/results.xml
+    paths:
+      - cocotb/ethmac_ahb/results.xml
+    expire_in: 30 days
+
+ethmac_ahb_app:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" MODULE=test_basic_app
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_ahb/results.xml
+    paths:
+      - cocotb/ethmac_ahb/results.xml
+    expire_in: 30 days
+
+ethmac_ahb_echo:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" MODULE=test_tap_echo TESTCASE=test_loopback_echo
   artifacts:
     when: always
     reports:
