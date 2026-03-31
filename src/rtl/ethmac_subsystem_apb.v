@@ -1,0 +1,416 @@
+//-----------------------------------------------------------------------------
+// ethmac_subsystem_apb.v
+//-----------------------------------------------------------------------------
+// Combined Ethernet MAC + IEEE 1588 PTP timestamping subsystem.
+//
+// Provides a single APB slave port for register access to both peripherals,
+// address-decoded via a CMSDK APB slave mux, and a single AHB master port
+// for the Ethernet MAC's DMA engine.
+//
+// Address map (from APB slave port):
+//   0x0000 - 0x0FFF   Ethernet MAC registers & buffer descriptors (Port 0)
+//   0x1000 - 0x1FFF   HA1588 PTP registers                       (Port 1)
+//
+// Architecture:
+//                                ┌─ apb_to_wb ─── eth_top (regs)
+//   APB Slave ─► apb_slave_mux ─┤
+//                                └─ apb_to_wb ─── wb_slv_wrapper ─── ha1588
+//
+//   AHB Master ◄── wb_to_ahb3lite ◄── eth_top (DMA)
+//
+//   MII ◄────────► eth_top (PHY interface)
+//   GMII monitor ─► ha1588 (timestamping)
+//   RTC outputs  ◄─ ha1588
+//   int_o        ◄─ eth_top
+//-----------------------------------------------------------------------------
+
+module ethmac_subsystem_apb (
+  // Clock and Reset
+  input  wire        pclk,
+  input  wire        presetn,
+
+  // AHB Master Interface (DMA)
+  output wire [31:0] haddr,
+  output wire  [1:0] htrans,
+  output wire  [2:0] hsize,
+  output wire  [2:0] hburst,
+  output wire  [3:0] hprot,
+  output wire        hmastlock,
+  output wire        hwrite,
+  output wire [31:0] hwdata,
+  input  wire [31:0] hrdata,
+  input  wire        hready,
+  input  wire        hresp,
+
+  // APB Slave Interface (Register Access — shared)
+  input  wire        psel,
+  input  wire        penable,
+  input  wire [31:0] paddr,
+  input  wire        pwrite,
+  input  wire [31:0] pwdata,
+  input  wire  [3:0] pstrb,
+  output wire [31:0] prdata,
+  output wire        pready,
+  output wire        pslverr,
+
+  // RTC Clock
+  input  wire        rtc_clk,
+
+  // RTC Time Outputs
+  output wire [31:0] rtc_time_ptp_ns,
+  output wire [47:0] rtc_time_ptp_sec,
+  output wire        rtc_time_one_pps,
+
+  // MII Transmit
+  input  wire        mtx_clk_pad_i,
+  output wire  [3:0] mtxd_pad_o,
+  output wire        mtxen_pad_o,
+  output wire        mtxerr_pad_o,
+
+  // MII Receive
+  input  wire        mrx_clk_pad_i,
+  input  wire  [3:0] mrxd_pad_i,
+  input  wire        mrxdv_pad_i,
+  input  wire        mrxerr_pad_i,
+
+  // MII Common
+  input  wire        mcoll_pad_i,
+  input  wire        mcrs_pad_i,
+
+  // MII Management Interface
+  input  wire        md_pad_i,
+  output wire        mdc_pad_o,
+  output wire        md_pad_o,
+  output wire        md_padoe_o,
+
+  // Interrupt
+  output wire        int_o
+);
+
+  // =================================================================
+  // APB Slave Mux — address decode
+  // =================================================================
+  // DECODE4BIT = paddr[12] selects between the two peripherals:
+  //   0 → Port 0 (Ethernet MAC, 0x0000-0x0FFF)
+  //   1 → Port 1 (HA1588 PTP,   0x1000-0x1FFF)
+
+  wire        psel_eth;
+  wire [31:0] prdata_eth;
+  wire        pready_eth;
+  wire        pslverr_eth;
+
+  wire        psel_ptp;
+  wire [31:0] prdata_ptp;
+  wire        pready_ptp;
+  wire        pslverr_ptp;
+
+  cmsdk_apb_slave_mux #(
+    .PORT0_ENABLE  (1),
+    .PORT1_ENABLE  (1),
+    .PORT2_ENABLE  (0),
+    .PORT3_ENABLE  (0),
+    .PORT4_ENABLE  (0),
+    .PORT5_ENABLE  (0),
+    .PORT6_ENABLE  (0),
+    .PORT7_ENABLE  (0),
+    .PORT8_ENABLE  (0),
+    .PORT9_ENABLE  (0),
+    .PORT10_ENABLE (0),
+    .PORT11_ENABLE (0),
+    .PORT12_ENABLE (0),
+    .PORT13_ENABLE (0),
+    .PORT14_ENABLE (0),
+    .PORT15_ENABLE (0)
+  ) u_apb_mux (
+    .DECODE4BIT (paddr[15:12]),
+    .PSEL       (psel),
+
+    // Port 0 — Ethernet MAC
+    .PSEL0      (psel_eth),
+    .PREADY0    (pready_eth),
+    .PRDATA0    (prdata_eth),
+    .PSLVERR0   (pslverr_eth),
+
+    // Port 1 — HA1588 PTP
+    .PSEL1      (psel_ptp),
+    .PREADY1    (pready_ptp),
+    .PRDATA1    (prdata_ptp),
+    .PSLVERR1   (pslverr_ptp),
+
+    // Unused ports — tie off inputs
+    .PSEL2      (), .PREADY2  (1'b1), .PRDATA2  (32'h0), .PSLVERR2  (1'b0),
+    .PSEL3      (), .PREADY3  (1'b1), .PRDATA3  (32'h0), .PSLVERR3  (1'b0),
+    .PSEL4      (), .PREADY4  (1'b1), .PRDATA4  (32'h0), .PSLVERR4  (1'b0),
+    .PSEL5      (), .PREADY5  (1'b1), .PRDATA5  (32'h0), .PSLVERR5  (1'b0),
+    .PSEL6      (), .PREADY6  (1'b1), .PRDATA6  (32'h0), .PSLVERR6  (1'b0),
+    .PSEL7      (), .PREADY7  (1'b1), .PRDATA7  (32'h0), .PSLVERR7  (1'b0),
+    .PSEL8      (), .PREADY8  (1'b1), .PRDATA8  (32'h0), .PSLVERR8  (1'b0),
+    .PSEL9      (), .PREADY9  (1'b1), .PRDATA9  (32'h0), .PSLVERR9  (1'b0),
+    .PSEL10     (), .PREADY10 (1'b1), .PRDATA10 (32'h0), .PSLVERR10 (1'b0),
+    .PSEL11     (), .PREADY11 (1'b1), .PRDATA11 (32'h0), .PSLVERR11 (1'b0),
+    .PSEL12     (), .PREADY12 (1'b1), .PRDATA12 (32'h0), .PSLVERR12 (1'b0),
+    .PSEL13     (), .PREADY13 (1'b1), .PRDATA13 (32'h0), .PSLVERR13 (1'b0),
+    .PSEL14     (), .PREADY14 (1'b1), .PRDATA14 (32'h0), .PSLVERR14 (1'b0),
+    .PSEL15     (), .PREADY15 (1'b1), .PRDATA15 (32'h0), .PSLVERR15 (1'b0),
+
+    // Muxed outputs
+    .PREADY     (pready),
+    .PRDATA     (prdata),
+    .PSLVERR    (pslverr)
+  );
+
+  // =================================================================
+  // Port 0 — Ethernet MAC (APB register access + AHB DMA master)
+  // =================================================================
+
+  //---------------------------------------------------
+  // Ethernet MAC: APB → WB bridge (register access)
+  //---------------------------------------------------
+  wire [31:0] eth_wb_adr;
+  wire [31:0] eth_wb_wdat;
+  wire  [3:0] eth_wb_sel;
+  wire        eth_wb_we;
+  wire        eth_wb_cyc;
+  wire        eth_wb_stb;
+  wire [31:0] eth_wb_rdat;
+  wire        eth_wb_ack;
+  wire        eth_wb_err;
+
+  apb_to_wb u_eth_apb_to_wb (
+    .pclk       (pclk),
+    .presetn    (presetn),
+
+    .psel       (psel_eth),
+    .penable    (penable),
+    .paddr      (paddr),
+    .pwrite     (pwrite),
+    .pwdata     (pwdata),
+    .pstrb      (pstrb),
+    .prdata     (prdata_eth),
+    .pready     (pready_eth),
+    .pslverr    (pslverr_eth),
+
+    .wb_adr_o   (eth_wb_adr),
+    .wb_dat_o   (eth_wb_wdat),
+    .wb_sel_o   (eth_wb_sel),
+    .wb_we_o    (eth_wb_we),
+    .wb_cyc_o   (eth_wb_cyc),
+    .wb_stb_o   (eth_wb_stb),
+    .wb_dat_i   (eth_wb_rdat),
+    .wb_ack_i   (eth_wb_ack),
+    .wb_err_i   (eth_wb_err)
+  );
+
+  //---------------------------------------------------
+  // Ethernet MAC: WB master → AHB master bridge (DMA)
+  //---------------------------------------------------
+  wire [31:0] m_wb_adr_o;
+  wire  [3:0] m_wb_sel_o;
+  wire        m_wb_we_o;
+  wire [31:0] m_wb_dat_o;
+  wire [31:0] m_wb_dat_i;
+  wire        m_wb_cyc_o;
+  wire        m_wb_stb_o;
+  wire        m_wb_ack_i;
+  wire        m_wb_err_i;
+  wire  [2:0] m_wb_cti_o;
+  wire  [1:0] m_wb_bte_o;
+
+  wb_to_ahb3lite u_wb_to_ahb3lite (
+    .clk_i              (pclk),
+    .rst_n_i            (presetn),
+
+    .from_m_wb_adr_o    (m_wb_adr_o),
+    .from_m_wb_sel_o    (m_wb_sel_o),
+    .from_m_wb_we_o     (m_wb_we_o),
+    .from_m_wb_dat_o    (m_wb_dat_o),
+    .from_m_wb_cyc_o    (m_wb_cyc_o),
+    .from_m_wb_stb_o    (m_wb_stb_o),
+    .to_m_wb_ack_i      (m_wb_ack_i),
+    .to_m_wb_err_i      (m_wb_err_i),
+    .to_m_wb_dat_i      (m_wb_dat_i),
+    .from_m_wb_cti_o    (m_wb_cti_o),
+    .from_m_wb_bte_o    (m_wb_bte_o),
+
+    .mHSEL              (hmastlock),
+    .mHSIZE             (hsize),
+    .mHRDATA            (hrdata),
+    .mHRESP             (hresp),
+    .mHREADY            (hready),
+    .mHREADYOUT         (),
+    .mHWRITE            (hwrite),
+    .mHBURST            (hburst),
+    .mHADDR             (haddr),
+    .mHTRANS            (htrans),
+    .mHWDATA            (hwdata),
+    .mHPROT             (hprot)
+  );
+
+  //---------------------------------------------------
+  // Ethernet MAC Core
+  //---------------------------------------------------
+  eth_top u_eth_top (
+    // WISHBONE common
+    .wb_clk_i       (pclk),
+    .wb_rst_i       (~presetn),
+    .wb_dat_i       (eth_wb_wdat),
+    .wb_dat_o       (eth_wb_rdat),
+
+    // WISHBONE slave (register access from APB)
+    .wb_adr_i       (eth_wb_adr[11:2]),
+    .wb_sel_i       (eth_wb_sel),
+    .wb_we_i        (eth_wb_we),
+    .wb_cyc_i       (eth_wb_cyc),
+    .wb_stb_i       (eth_wb_stb),
+    .wb_ack_o       (eth_wb_ack),
+    .wb_err_o       (eth_wb_err),
+
+    // WISHBONE master (DMA → AHB)
+    .m_wb_adr_o     (m_wb_adr_o),
+    .m_wb_sel_o     (m_wb_sel_o),
+    .m_wb_we_o      (m_wb_we_o),
+    .m_wb_dat_o     (m_wb_dat_o),
+    .m_wb_dat_i     (m_wb_dat_i),
+    .m_wb_cyc_o     (m_wb_cyc_o),
+    .m_wb_stb_o     (m_wb_stb_o),
+    .m_wb_ack_i     (m_wb_ack_i),
+    .m_wb_err_i     (m_wb_err_i),
+
+`ifdef ETH_WISHBONE_B3
+    .m_wb_cti_o     (m_wb_cti_o),
+    .m_wb_bte_o     (m_wb_bte_o),
+`endif
+
+    // MII Transmit
+    .mtx_clk_pad_i  (mtx_clk_pad_i),
+    .mtxd_pad_o     (mtxd_pad_o),
+    .mtxen_pad_o    (mtxen_pad_o),
+    .mtxerr_pad_o   (mtxerr_pad_o),
+
+    // MII Receive
+    .mrx_clk_pad_i  (mrx_clk_pad_i),
+    .mrxd_pad_i     (mrxd_pad_i),
+    .mrxdv_pad_i    (mrxdv_pad_i),
+    .mrxerr_pad_i   (mrxerr_pad_i),
+
+    // MII Common
+    .mcoll_pad_i    (mcoll_pad_i),
+    .mcrs_pad_i     (mcrs_pad_i),
+
+    // MII Management
+    .md_pad_i       (md_pad_i),
+    .mdc_pad_o      (mdc_pad_o),
+    .md_pad_o       (md_pad_o),
+    .md_padoe_o     (md_padoe_o),
+
+    // Interrupt
+    .int_o          (int_o)
+  );
+
+  // =================================================================
+  // Port 1 — HA1588 PTP Timestamping Unit (APB register access only)
+  // =================================================================
+
+  //---------------------------------------------------
+  // HA1588: APB → WB bridge
+  //---------------------------------------------------
+  wire [31:0] ptp_wb_adr;
+  wire [31:0] ptp_wb_wdat;
+  wire  [3:0] ptp_wb_sel;
+  wire        ptp_wb_we;
+  wire        ptp_wb_cyc;
+  wire        ptp_wb_stb;
+  wire [31:0] ptp_wb_rdat;
+  wire        ptp_wb_ack;
+  wire        ptp_wb_err;
+
+  apb_to_wb u_ptp_apb_to_wb (
+    .pclk       (pclk),
+    .presetn    (presetn),
+
+    .psel       (psel_ptp),
+    .penable    (penable),
+    .paddr      (paddr),
+    .pwrite     (pwrite),
+    .pwdata     (pwdata),
+    .pstrb      (pstrb),
+    .prdata     (prdata_ptp),
+    .pready     (pready_ptp),
+    .pslverr    (pslverr_ptp),
+
+    .wb_adr_o   (ptp_wb_adr),
+    .wb_dat_o   (ptp_wb_wdat),
+    .wb_sel_o   (ptp_wb_sel),
+    .wb_we_o    (ptp_wb_we),
+    .wb_cyc_o   (ptp_wb_cyc),
+    .wb_stb_o   (ptp_wb_stb),
+    .wb_dat_i   (ptp_wb_rdat),
+    .wb_ack_i   (ptp_wb_ack),
+    .wb_err_i   (ptp_wb_err)
+  );
+
+  assign ptp_wb_err = 1'b0;
+
+  //---------------------------------------------------
+  // HA1588: WB → Simple Bus Adapter
+  //---------------------------------------------------
+  wire        ha_rst;
+  wire        ha_clk;
+  wire        ha_wr;
+  wire        ha_rd;
+  wire  [7:0] ha_addr;
+  wire [31:0] ha_wdata;
+  wire [31:0] ha_rdata;
+
+  wb_slv_wrapper u_wb_slv_wrapper (
+    .rst_i      (~presetn),
+    .clk_i      (pclk),
+    .stb_i      (ptp_wb_cyc & ptp_wb_stb),
+    .we_i       (ptp_wb_we),
+    .ack_o      (ptp_wb_ack),
+    .adr_i      (ptp_wb_adr),
+    .dat_i      (ptp_wb_wdat),
+    .dat_o      (ptp_wb_rdat),
+
+    .rst        (ha_rst),
+    .clk        (ha_clk),
+    .wr_out     (ha_wr),
+    .rd_out     (ha_rd),
+    .addr_out   (ha_addr),
+    .data_out   (ha_wdata),
+    .data_in    (ha_rdata)
+  );
+
+  //---------------------------------------------------
+  // HA1588 PTP Core
+  //---------------------------------------------------
+  ha1588 u_ha1588 (
+    .rst            (ha_rst),
+    .clk            (ha_clk),
+    .wr_in          (ha_wr),
+    .rd_in          (ha_rd),
+    .addr_in        (ha_addr),
+    .data_in        (ha_wdata),
+    .data_out       (ha_rdata),
+
+    .rtc_clk        (rtc_clk),
+
+    .rtc_time_ptp_ns  (rtc_time_ptp_ns),
+    .rtc_time_ptp_sec (rtc_time_ptp_sec),
+    .rtc_time_one_pps (rtc_time_one_pps),
+
+    // GMII RX monitoring — tapped from MII RX signals
+    // MII is 4-bit, so upper nibble is zero and giga_mode=0
+    .rx_gmii_clk    (mrx_clk_pad_i),
+    .rx_gmii_ctrl   (mrxdv_pad_i),
+    .rx_gmii_data   ({4'b0, mrxd_pad_i}),
+    .rx_giga_mode   (1'b0),
+
+    // GMII TX monitoring — tapped from MII TX signals
+    .tx_gmii_clk    (mtx_clk_pad_i),
+    .tx_gmii_ctrl   (mtxen_pad_o),
+    .tx_gmii_data   ({4'b0, mtxd_pad_o}),
+    .tx_giga_mode   (1'b0)
+  );
+
+endmodule

@@ -17,8 +17,9 @@ COMPILE_ARGS += +incdir+$(HA1588_RTL)/tsu
 # Enable SystemVerilog for SVA assertions
 COMPILE_ARGS += -sverilog
 
-# Enable xprop (X-propagation) for ASIC verification
-COMPILE_ARGS += -xprop=tmerge
+# Note: X-propagation analysis is done via VC Formal (formal/ha1588_ahb/xprop.tcl).
+# VCS -xprop=tmerge is NOT used here because reg.v has no reset logic, causing
+# false failures in simulation. The formal xprop flow is the ASIC sign-off method.
 
 # Enable VCS code coverage (line, condition, toggle, FSM, branch)
 COMPILE_ARGS += -cm line+cond+tgl+fsm+branch

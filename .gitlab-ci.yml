@@ -19,6 +19,8 @@ variables:
   # External IP
   ETHMAC_IP_DIR: /research/AAA/ip_library/OpenCores-EthMAC
   HA1588_IP_DIR: /research/AAA/ip_library/OpenCores-HA1588
+  # ARM CMSDK (APB mux, SRAM models)
+  CMSDK_DIR: /research/AAA/ip_library/BP210/BP210-BU-00000-r1p1-00rel0
   # Synopsys EDA tool paths
   VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
   VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
@@ -92,6 +94,7 @@ preflight:
       echo "── IP Libraries ────────────────────────"
       check_dir "ETHMAC_IP_DIR"  "$ETHMAC_IP_DIR"
       check_dir "HA1588_IP_DIR"  "$HA1588_IP_DIR"
+      check_dir "CMSDK_DIR"      "$CMSDK_DIR"
 
       echo ""
       echo "── Workspace ───────────────────────────"
@@ -289,6 +292,31 @@ ha1588_ahb:
       - cocotb/ha1588_ahb/coverage_report/
     expire_in: 30 days
 
+ethmac_subsystem_apb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_subsystem_apb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_subsystem_apb"
+    - make -C "$WORK_DIR/cocotb/ethmac_subsystem_apb" coverage || true
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_subsystem_apb/results.xml
+    paths:
+      - cocotb/ethmac_subsystem_apb/results.xml
+    expire_in: 30 days
+
 # ── UVM Verification ─────────────────────────────────────────────────────
 
 uvm-ahb3lite_to_wb:
@@ -345,6 +373,28 @@ uvm-ha1588_ahb:
     when: always
     paths:
       - uvm/ha1588_ahb/sim_build/*.log
+    expire_in: 30 days
+
+uvm-ethmac_subsystem_apb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+    - export VIP_HOME="$VIP_HOME"
+    - export DESIGNWARE_HOME="$VIP_HOME"
+  script:
+    - make -C "$WORK_DIR/uvm/ethmac_subsystem_apb" clean
+    - make -C "$WORK_DIR/uvm/ethmac_subsystem_apb" run_all
+  artifacts:
+    when: always
+    paths:
+      - uvm/ethmac_subsystem_apb/sim_build/*.log
     expire_in: 30 days
 
 # ── RTL SAIF Generation ─────────────────────────────────────────────────

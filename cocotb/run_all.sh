@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUITES=(
     "ethmac_ahb"
     "ha1588_ahb"
+    "ethmac_subsystem_apb"
 )
 
 if [ -n "$1" ]; then
