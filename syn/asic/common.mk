@@ -3,9 +3,11 @@
 
 export ETHMAC_AHB_HOME := $(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 
-# ── External IP path ──────────────────────────────────────────────────────
+# ── External IP paths ─────────────────────────────────────────────────────
 # OpenCores Ethernet MAC IP (required for eth_top and submodules)
 export ETHMAC_IP_DIR ?= /research/AAA/ip_library/OpenCores-EthMAC
+# OpenCores HA1588 IEEE 1588 PTP IP (required for ha1588 and submodules)
+export HA1588_IP_DIR ?= /research/AAA/ip_library/OpenCores-HA1588
 
 # ── Target module ──────────────────────────────────────────────────────────
 export MODULE ?= ethmac_ahb
@@ -50,10 +52,20 @@ export TLUPLUS_PATH   ?= $(PHYS_IP_PATH)/arm_tech/r2p0/synopsys_tluplus/1p9m_6x2
 export TLUPLUS_MAP    ?= $(TLUPLUS_PATH)/tluplus.map
 
 # ── Design constraints ─────────────────────────────────────────────────────
-export CLK_NAME        ?= hclk
 export CLK_PERIOD      ?= 4.0
 export CLK_UNCERTAINTY ?= 0.35
-export RST_NAME        ?= hresetn
+
+# Per-module clock/reset names (APB wrapper uses pclk/presetn)
+ifeq ($(MODULE),ha1588_apb)
+  export CLK_NAME ?= pclk
+  export RST_NAME ?= presetn
+else
+  export CLK_NAME ?= hclk
+  export RST_NAME ?= hresetn
+endif
 
 # ── Available modules ──────────────────────────────────────────────────────
-MODULES = ethmac_ahb ethmac_ahb_rmii rmii_to_mii ahb3lite_to_wb wb_to_ahb3lite
+# Note: Bridge modules (rmii_to_mii, ahb3lite_to_wb, wb_to_ahb3lite, apb_to_wb)
+# are in the amba_wb_bridges/ submodule.
+# Run: make -C ../../amba_wb_bridges/syn/asic/design-compiler syn MODULE=<name>
+MODULES = ethmac_ahb ethmac_ahb_rmii ha1588_ahb ha1588_apb

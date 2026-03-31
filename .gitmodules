@@ -1,0 +1,3 @@
+[submodule "bridges"]
+	path = amba_wb_bridges
+	url = git@git.soton.ac.uk:soclabs/ahb-wb-bridges.git

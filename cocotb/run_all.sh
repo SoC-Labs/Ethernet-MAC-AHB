@@ -8,10 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SUITES=(
-    "rmii_to_mii"
-    "ahb3lite_to_wb"
-    "wb_to_ahb3lite"
     "ethmac_ahb"
+    "ha1588_ahb"
 )
 
 if [ -n "$1" ]; then

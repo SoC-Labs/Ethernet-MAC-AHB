@@ -18,6 +18,7 @@ variables:
   WORK_DIR: "${CI_BUILDS_DIR}/${CI_PROJECT_NAME}/${CI_PIPELINE_ID}"
   # External IP
   ETHMAC_IP_DIR: /research/AAA/ip_library/OpenCores-EthMAC
+  HA1588_IP_DIR: /research/AAA/ip_library/OpenCores-HA1588
   # Synopsys EDA tool paths
   VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
   VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
@@ -90,6 +91,7 @@ preflight:
       echo ""
       echo "── IP Libraries ────────────────────────"
       check_dir "ETHMAC_IP_DIR"  "$ETHMAC_IP_DIR"
+      check_dir "HA1588_IP_DIR"  "$HA1588_IP_DIR"
 
       echo ""
       echo "── Workspace ───────────────────────────"
@@ -124,11 +126,10 @@ hal-lint:
     - xcelium
   before_script:
     - export PATH="$XCELIUM_HOME/tools/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
   script:
     - echo "HAL version:" && hal -version 2>&1 | head -1
-    - make -C "$WORK_DIR/lint" lint-bridges
+    - make -C "$WORK_DIR/amba_wb_bridges/lint" lint-each
   after_script:
     - cp -r "$WORK_DIR/lint/"*_hal.log "$WORK_DIR/lint/"*_hal.xml . 2>/dev/null || true
   artifacts:
@@ -147,18 +148,16 @@ ahb3lite_to_wb:
     - vcs
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
-    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+    - pip3 install --user -r "$WORK_DIR/amba_wb_bridges/cocotb/requirements.txt"
   script:
-    - make -C "$WORK_DIR/cocotb/ahb3lite_to_wb" clean
-    - make -C "$WORK_DIR/cocotb/ahb3lite_to_wb"
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/ahb3lite_to_wb" clean
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/ahb3lite_to_wb"
   artifacts:
     when: always
     reports:
-      junit: cocotb/ahb3lite_to_wb/results.xml
+      junit: amba_wb_bridges/cocotb/ahb3lite_to_wb/results.xml
     paths:
-      - cocotb/ahb3lite_to_wb/results.xml
+      - amba_wb_bridges/cocotb/ahb3lite_to_wb/results.xml
     expire_in: 30 days
 
 wb_to_ahb3lite:
@@ -168,18 +167,16 @@ wb_to_ahb3lite:
     - vcs
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
-    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+    - pip3 install --user -r "$WORK_DIR/amba_wb_bridges/cocotb/requirements.txt"
   script:
-    - make -C "$WORK_DIR/cocotb/wb_to_ahb3lite" clean
-    - make -C "$WORK_DIR/cocotb/wb_to_ahb3lite"
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/wb_to_ahb3lite" clean
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/wb_to_ahb3lite"
   artifacts:
     when: always
     reports:
-      junit: cocotb/wb_to_ahb3lite/results.xml
+      junit: amba_wb_bridges/cocotb/wb_to_ahb3lite/results.xml
     paths:
-      - cocotb/wb_to_ahb3lite/results.xml
+      - amba_wb_bridges/cocotb/wb_to_ahb3lite/results.xml
     expire_in: 30 days
 
 rmii_to_mii:
@@ -189,18 +186,16 @@ rmii_to_mii:
     - vcs
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
-    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+    - pip3 install --user -r "$WORK_DIR/amba_wb_bridges/cocotb/requirements.txt"
   script:
-    - make -C "$WORK_DIR/cocotb/rmii_to_mii" clean
-    - make -C "$WORK_DIR/cocotb/rmii_to_mii"
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/rmii_to_mii" clean
+    - make -C "$WORK_DIR/amba_wb_bridges/cocotb/rmii_to_mii"
   artifacts:
     when: always
     reports:
-      junit: cocotb/rmii_to_mii/results.xml
+      junit: amba_wb_bridges/cocotb/rmii_to_mii/results.xml
     paths:
-      - cocotb/rmii_to_mii/results.xml
+      - amba_wb_bridges/cocotb/rmii_to_mii/results.xml
     expire_in: 30 days
 
 ethmac_ahb:
@@ -211,6 +206,7 @@ ethmac_ahb:
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
     - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
     - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
     - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
   script:
@@ -266,6 +262,33 @@ ethmac_ahb_echo:
       - cocotb/ethmac_ahb/results.xml
     expire_in: 30 days
 
+ha1588_ahb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ha1588_ahb" clean
+    - make -C "$WORK_DIR/cocotb/ha1588_ahb"
+    - make -C "$WORK_DIR/cocotb/ha1588_ahb" coverage || true
+  after_script:
+    - mkdir -p cocotb/ha1588_ahb
+    - cp -r "$WORK_DIR/cocotb/ha1588_ahb/coverage_report" cocotb/ha1588_ahb/ 2>/dev/null || true
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ha1588_ahb/results.xml
+    paths:
+      - cocotb/ha1588_ahb/results.xml
+      - cocotb/ha1588_ahb/coverage_report/
+    expire_in: 30 days
+
 # ── UVM Verification ─────────────────────────────────────────────────────
 
 uvm-ahb3lite_to_wb:
@@ -275,17 +298,15 @@ uvm-ahb3lite_to_wb:
     - vcs
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
     - export VIP_HOME="$VIP_HOME"
     - export DESIGNWARE_HOME="$VIP_HOME"
   script:
-    - make -C "$WORK_DIR/uvm/ahb3lite_to_wb" clean
-    - make -C "$WORK_DIR/uvm/ahb3lite_to_wb" run_all
+    - make -C "$WORK_DIR/amba_wb_bridges/uvm/ahb3lite_to_wb" clean
+    - make -C "$WORK_DIR/amba_wb_bridges/uvm/ahb3lite_to_wb" run_all
   artifacts:
     when: always
     paths:
-      - uvm/ahb3lite_to_wb/sim_build/*.log
+      - amba_wb_bridges/uvm/ahb3lite_to_wb/sim_build/*.log
     expire_in: 30 days
 
 uvm-wb_to_ahb3lite:
@@ -295,17 +316,35 @@ uvm-wb_to_ahb3lite:
     - vcs
   before_script:
     - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
-    - export ETHMAC_AHB_HOME="$WORK_DIR"
-    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
     - export VIP_HOME="$VIP_HOME"
     - export DESIGNWARE_HOME="$VIP_HOME"
   script:
-    - make -C "$WORK_DIR/uvm/wb_to_ahb3lite" clean
-    - make -C "$WORK_DIR/uvm/wb_to_ahb3lite" run_all
+    - make -C "$WORK_DIR/amba_wb_bridges/uvm/wb_to_ahb3lite" clean
+    - make -C "$WORK_DIR/amba_wb_bridges/uvm/wb_to_ahb3lite" run_all
   artifacts:
     when: always
     paths:
-      - uvm/wb_to_ahb3lite/sim_build/*.log
+      - amba_wb_bridges/uvm/wb_to_ahb3lite/sim_build/*.log
+    expire_in: 30 days
+
+uvm-ha1588_ahb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export VIP_HOME="$VIP_HOME"
+    - export DESIGNWARE_HOME="$VIP_HOME"
+  script:
+    - make -C "$WORK_DIR/uvm/ha1588_ahb" clean
+    - make -C "$WORK_DIR/uvm/ha1588_ahb" run_all
+  artifacts:
+    when: always
+    paths:
+      - uvm/ha1588_ahb/sim_build/*.log
     expire_in: 30 days
 
 # ── RTL SAIF Generation ─────────────────────────────────────────────────
@@ -385,6 +424,62 @@ design-compiler:
       - syn/asic/design-compiler/ethmac_ahb_dc_reports/
       - syn/asic/design-compiler/ethmac_ahb_dc_output/
       - syn/asic/design-compiler/ethmac_ahb_dc.log
+    expire_in: 30 days
+
+# ── HA1588 AHB Synthesis ─────────────────────────────────────────────────
+
+rtl-architect-ha1588:
+  stage: synthesis
+  needs: [clone, preflight]
+  tags:
+    - rtl_architect
+  before_script:
+    - export PATH="$RTLA_HOME/bin:$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+  script:
+    - echo "RTL Architect version:" && rtl_shell -version 2>&1 | head -3
+    - make -C "$WORK_DIR/syn/asic/rtl-architect" ra MODULE=ha1588_ahb
+  after_script:
+    - mkdir -p syn/asic/rtl-architect
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/ha1588_ahb_ra_reports" syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/rtl-architect/ha1588_ahb_ra.log"     syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/rpts_fc"    syn/asic/rtl-architect/ha1588_rpts_fc/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/logs_rtl"  syn/asic/rtl-architect/ha1588_logs_rtl/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/rtl-architect/ha1588_ahb_ra_reports/
+      - syn/asic/rtl-architect/ha1588_ahb_ra.log
+      - syn/asic/rtl-architect/ha1588_rpts_fc/
+      - syn/asic/rtl-architect/ha1588_logs_rtl/
+    expire_in: 30 days
+
+design-compiler-ha1588:
+  stage: synthesis
+  needs:
+    - job: clone
+    - job: preflight
+  tags:
+    - design_compiler
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+  script:
+    - echo "DC version:" && { dc_shell -version 2>&1 | head -3 || true; }
+    - make -C "$WORK_DIR/syn/asic/design-compiler" syn MODULE=ha1588_ahb
+  after_script:
+    - mkdir -p syn/asic/design-compiler
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ha1588_ahb_dc_reports" syn/asic/design-compiler/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ha1588_ahb_dc_output"  syn/asic/design-compiler/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/design-compiler/ha1588_ahb_dc.log"     syn/asic/design-compiler/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/design-compiler/ha1588_ahb_dc_reports/
+      - syn/asic/design-compiler/ha1588_ahb_dc_output/
+      - syn/asic/design-compiler/ha1588_ahb_dc.log
     expire_in: 30 days
 
 # ── Gate-Level Simulation ──────────────────────────────────────────────

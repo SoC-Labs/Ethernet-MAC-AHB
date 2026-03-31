@@ -1,17 +1,13 @@
 # Top-level VC Formal X-propagation regression Makefile
 # Usage:
 #   make regression              Run xprop on all modules
-#   make ahb3lite_to_wb          Run xprop on a single module
-#   make standalone              Run only standalone modules (no OpenCores IP)
+#   make ethmac_ahb              Run xprop on a single module
 #   make clean                   Clean all modules
 
-# Standalone modules (no OpenCores dependency)
-STANDALONE_ENVS = ahb3lite_to_wb wb_to_ahb3lite rmii_to_mii
-
 # OpenCores-dependent modules
-ETHMAC_ENVS = ethmac_ahb
+ETHMAC_ENVS = ethmac_ahb ha1588_ahb ha1588_apb
 
-ENVS = $(STANDALONE_ENVS) $(ETHMAC_ENVS)
+ENVS = $(ETHMAC_ENVS)
 
 # ── Per-module targets ─────────────────────────────────────────────────────
 define run_env
@@ -35,11 +31,9 @@ endef
 $(foreach env,$(ENVS),$(eval $(call run_env,$(env))))
 
 # ── Regression targets ─────────────────────────────────────────────────────
-.PHONY: regression standalone regression-summary
+.PHONY: regression regression-summary
 
 regression: $(ENVS) regression-summary
-
-standalone: $(STANDALONE_ENVS) regression-summary-standalone
 
 regression-summary:
 	@echo "========================================"
@@ -47,21 +41,6 @@ regression-summary:
 	@echo "========================================"
 	@pass=0; fail=0; \
 	for env in $(ENVS); do \
-	  result=$$(cat $$env/.result 2>/dev/null || echo "FAIL"); \
-	  printf "  %-30s %s\n" "$$env" "$$result"; \
-	  if [ "$$result" = "PASS" ]; then pass=$$((pass + 1)); else fail=$$((fail + 1)); fi; \
-	done; \
-	echo "----------------------------------------"; \
-	echo "  PASS=$$pass  FAIL=$$fail  TOTAL=$$(( pass + fail ))"; \
-	echo "========================================"; \
-	[ "$$fail" -eq 0 ]
-
-regression-summary-standalone:
-	@echo "========================================"
-	@echo " Formal Regression Summary (standalone)"
-	@echo "========================================"
-	@pass=0; fail=0; \
-	for env in $(STANDALONE_ENVS); do \
 	  result=$$(cat $$env/.result 2>/dev/null || echo "FAIL"); \
 	  printf "  %-30s %s\n" "$$env" "$$result"; \
 	  if [ "$$result" = "PASS" ]; then pass=$$((pass + 1)); else fail=$$((fail + 1)); fi; \
@@ -87,12 +66,10 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make regression              Run xprop on all modules"
-	@echo "  make standalone              Run standalone modules only (no OpenCores IP)"
-	@echo "  make ahb3lite_to_wb          Run xprop on a single module"
+	@echo "  make ethmac_ahb              Run xprop on a single module"
 	@echo "  make clean                   Remove all generated files"
 	@echo ""
-	@echo "Standalone modules (no OpenCores dependency):"
-	@echo "  $(STANDALONE_ENVS)"
+	@echo "Modules:"
+	@echo "  $(ENVS)"
 	@echo ""
-	@echo "OpenCores-dependent modules:"
-	@echo "  $(ETHMAC_ENVS)"
+	@echo "Note: Bridge formal tests are in the amba_wb_bridges/ submodule."

@@ -42,8 +42,8 @@ root of your copy (the same layout as the OpenCores release tarball).
 
 Originally from
 [vfinotti/ahb3lite_wb_bridge](https://github.com/vfinotti/ahb3lite_wb_bridge),
-now included directly in `src/rtl/bridges/`. See
-[src/rtl/bridges/README.md](src/rtl/bridges/README.md) for modification details.
+now included as a git submodule at `bridges/`. See
+[bridges/src/rtl/README.md](bridges/src/rtl/README.md) for modification details.
 
 ### Verification tools (for running tests)
 
@@ -161,7 +161,7 @@ make TESTCASE=test_single_word_write
 ### Bridge Logic
 
 The wrapper contains two protocol bridges from the
-[ahb3lite_wb_bridge](https://github.com/vfinotti/ahb3lite_wb_bridge) (now in `src/rtl/bridges/`):
+[ahb3lite_wb_bridge](https://github.com/vfinotti/ahb3lite_wb_bridge) (now in `bridges/` submodule):
 
 - **`ahb3lite_to_wb`** -- Translates AHB-Lite slave transactions into
   WISHBONE slave cycles for register access.  `HSEL` maps to `wb_cyc_i`,
@@ -182,7 +182,7 @@ ethernet-mac-ahb/
 │   │   │   ├── ethmac_ahb.v            # Top-level AHB wrapper
 │   │   │   ├── ethmac_ahb_rmii.v       # RMII variant
 │   │   │   └── rmii_to_mii.v           # RMII-to-MII adapter
-│   │   ├── bridges/                     # AHB↔WB protocol bridges
+│   │   ├── amba_wb_bridges/                     # AHB↔WB protocol bridges
 │   │   ├── ethmac_patches/             # Patched ethmac files for VCS compat
 │   │   ├── asic/                        # ASIC-specific implementations
 │   │   └── fpga/                        # FPGA-specific implementations

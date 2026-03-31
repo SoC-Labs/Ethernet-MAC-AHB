@@ -5,11 +5,9 @@ export ETHMAC_IP_DIR   ?= /research/AAA/ip_library/OpenCores-EthMAC
 MODULE ?= wb_to_ahb3lite
 
 # ── All lintable modules ─────────────────────────────────────────
-# Bridge modules (no external IP dependencies)
-BRIDGE_MODULES = wb_to_ahb3lite ahb3lite_to_wb rmii_to_mii
-
 # Top-level modules requiring Ethernet MAC IP
 ETHMAC_MODULES = ethmac_ahb ethmac_ahb_rmii
+# Note: Bridge modules are in the amba_wb_bridges/ submodule (run: make -C ../amba_wb_bridges/lint lint-each)
 
 # ── Paths ─────────────────────────────────────────────────────────
 FLIST   = $(ETHMAC_AHB_HOME)/flist/$(MODULE).flist
@@ -32,7 +30,7 @@ HAL_FLAGS = -64bit \
 # Add any waivers from the rule file
 HAL_FLAGS += -file $(ETHMAC_AHB_HOME)/lint/hal.tcl
 
-.PHONY: lint lint-synth lint-all lint-bridges lint-each report gui clean help
+.PHONY: lint lint-synth lint-all lint-each report gui clean help
 
 # Default target: RTL lint checks for a single module
 lint:
@@ -46,18 +44,9 @@ lint-synth:
 lint-all:
 	$(HAL) $(HAL_FLAGS) -check ALL -f $(FLIST)
 
-# Lint all bridge modules (no Ethernet MAC dependency)
-lint-bridges:
-	@for mod in $(BRIDGE_MODULES); do \
-		echo "══════════════════════════════════════════════════════════"; \
-		echo "  Linting: $$mod"; \
-		echo "══════════════════════════════════════════════════════════"; \
-		$(MAKE) lint MODULE=$$mod || exit 1; \
-	done
-
-# Lint every module individually (bridges + top-level)
+# Lint every module individually
 lint-each:
-	@for mod in $(BRIDGE_MODULES) $(ETHMAC_MODULES); do \
+	@for mod in $(ETHMAC_MODULES); do \
 		echo "══════════════════════════════════════════════════════════"; \
 		echo "  Linting: $$mod"; \
 		echo "══════════════════════════════════════════════════════════"; \
@@ -110,17 +99,15 @@ help:
 	@echo "  make lint MODULE=<name>        - Lint a specific module"
 	@echo "  make lint-synth                - Synthesizability checks only"
 	@echo "  make lint-all                  - All checks (RTL + structural + synth)"
-	@echo "  make lint-bridges              - Lint all bridge modules"
-	@echo "  make lint-each                 - Lint every module (needs ETHMAC_IP_DIR for some)"
+	@echo "  make lint-each                 - Lint every module (needs ETHMAC_IP_DIR)"
 	@echo "  make report                    - Extract warnings/errors from lint log"
 	@echo "  make gui                       - Open report browser"
 	@echo "  make clean                     - Remove generated files"
 	@echo ""
-	@echo "Bridge modules (no external deps):"
-	@echo "  $(BRIDGE_MODULES)"
-	@echo ""
-	@echo "Ethernet MAC-dependent modules:"
+	@echo "Modules:"
 	@echo "  $(ETHMAC_MODULES)"
+	@echo ""
+	@echo "Bridge modules: run 'make -C ../amba_wb_bridges/lint lint-each'"
 	@echo ""
 	@echo "ETHMAC_IP_DIR: $(ETHMAC_IP_DIR)"
 	@echo ""
