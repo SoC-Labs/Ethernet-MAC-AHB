@@ -10,8 +10,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUITES=(
     "ethmac_ahb"
     "ha1588_ahb"
+    "ha1588_apb"
     "ethmac_subsystem_apb"
 )
+
+# PTP co-sim uses the same testbench as ethmac_subsystem_apb
+# with MODULE=test_ptp_cosim (run separately in CI)
 
 if [ -n "$1" ]; then
     SUITES=("$1")

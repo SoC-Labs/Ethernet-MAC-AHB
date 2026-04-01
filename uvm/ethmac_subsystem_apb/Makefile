@@ -146,7 +146,7 @@ help:
 	@echo "  make coverage         - Generate coverage report"
 	@echo "  make clean            - Clean"
 	@echo ""
-	@echo "Tests: subsystem_register_test subsystem_random_test subsystem_reset_test"
+	@echo "Tests: subsystem_register_test subsystem_random_test subsystem_reset_test subsystem_rtc_test subsystem_dma_test"
 
 compile: | $(SIM_DIR)
 	$(VCS) $(VCS_FLAGS)
@@ -165,7 +165,9 @@ coverage:
 
 TESTS = subsystem_register_test \
         subsystem_random_test \
-        subsystem_reset_test
+        subsystem_reset_test \
+        subsystem_rtc_test \
+        subsystem_dma_test
 
 run_all: compile
 	@fail=0; \

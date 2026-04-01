@@ -317,6 +317,57 @@ ethmac_subsystem_apb:
       - cocotb/ethmac_subsystem_apb/results.xml
     expire_in: 30 days
 
+ptp_cosim:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_subsystem_apb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_subsystem_apb" MODULE=test_ptp_cosim
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_subsystem_apb/results.xml
+    paths:
+      - cocotb/ethmac_subsystem_apb/results.xml
+    expire_in: 30 days
+
+ha1588_apb:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ha1588_apb" clean
+    - make -C "$WORK_DIR/cocotb/ha1588_apb"
+    - make -C "$WORK_DIR/cocotb/ha1588_apb" coverage || true
+  after_script:
+    - mkdir -p cocotb/ha1588_apb
+    - cp -r "$WORK_DIR/cocotb/ha1588_apb/coverage_report" cocotb/ha1588_apb/ 2>/dev/null || true
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ha1588_apb/results.xml
+    paths:
+      - cocotb/ha1588_apb/results.xml
+      - cocotb/ha1588_apb/coverage_report/
+    expire_in: 30 days
+
 # ── UVM Verification ─────────────────────────────────────────────────────
 
 uvm-ahb3lite_to_wb:

@@ -79,7 +79,7 @@ VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/ptp_queue.v
 VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/bus/wishbone/wb_slv_wrapper.v
 
 TOPLEVEL = tb_ethmac_subsystem_apb
-MODULE   = test_ethmac_subsystem_apb
+MODULE  ?= test_ethmac_subsystem_apb
 
 include $(shell cocotb-config --makefiles)/Makefile.sim
 

@@ -25,12 +25,16 @@ package ethmac_subsystem_apb_pkg;
   `include "apb_read_sequence.sv"
   `include "apb_write_read_sequence.sv"
   `include "apb_mixed_sequence.sv"
+  `include "apb_rtc_sequence.sv"
+  `include "apb_dma_tx_sequence.sv"
 
   // Tests
   `include "subsystem_base_test.sv"
   `include "subsystem_register_test.sv"
   `include "subsystem_random_test.sv"
   `include "subsystem_reset_test.sv"
+  `include "subsystem_rtc_test.sv"
+  `include "subsystem_dma_test.sv"
 
 endpackage
 
