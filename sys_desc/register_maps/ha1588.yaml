@@ -1,0 +1,284 @@
+#-----------------------------------------------------------------------------
+# OpenCores HA1588 IEEE 1588 PTP Register Map
+# Based on OpenCores HA1588 IP core
+#
+# A joint work commissioned on behalf of SoC Labs, under Arm Academic Access license.
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+
+register_map:
+  name: ha1588
+  module: ha1588_ahb
+  description: >
+    IEEE 1588 Precision Time Protocol (PTP) hardware timestamping core.
+    Provides a real-time clock (RTC) with sub-nanosecond resolution,
+    adjustable period for frequency synchronisation, and TX/RX timestamp
+    capture units with FIFO queues. Register access via AHB slave port
+    (bridge to internal WISHBONE to simple bus interface).
+  address_width: 8
+  data_width: 32
+
+  registers:
+    # =========================================================================
+    # RTC Registers (0x00 - 0x3F)
+    # =========================================================================
+    - name: RTC_CTRL
+      offset: 0x00
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC control register — pulse-action control bits (self-clearing)
+      fields:
+        - name: TIME_RD
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Latch current RTC time into RTC_SEC/RTC_NS registers (pulse)
+        - name: ADJ_LD
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Load adjustment period registers (pulse)
+        - name: PERIOD_LD
+          bits: "2"
+          access: RW
+          reset_value: 0
+          description: Load base period registers (pulse)
+        - name: TIME_LD
+          bits: "3"
+          access: RW
+          reset_value: 0
+          description: Load time into RTC from RTC_SEC/RTC_NS registers (pulse)
+        - name: RTC_RST
+          bits: "4"
+          access: RW
+          reset_value: 0
+          description: Reset RTC counters (pulse)
+
+    - name: SCRATCH
+      offset: 0x04
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: General-purpose scratch register for software use
+
+    - name: RTC_SEC_HI
+      offset: 0x10
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC seconds register (upper 16 bits of 48-bit seconds counter)
+      fields:
+        - name: SEC_HI
+          bits: "15:0"
+          access: RW
+          reset_value: 0x0000
+          description: Seconds counter bits [47:32]
+
+    - name: RTC_SEC_LO
+      offset: 0x14
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC seconds register (lower 32 bits of 48-bit seconds counter)
+
+    - name: RTC_NS
+      offset: 0x18
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC nanoseconds register
+      fields:
+        - name: NS
+          bits: "29:0"
+          access: RW
+          reset_value: 0x00000000
+          description: Nanoseconds counter (0 to 999,999,999)
+
+    - name: RTC_NSF
+      offset: 0x1C
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC nanoseconds fractional register
+      fields:
+        - name: NSF
+          bits: "7:0"
+          access: RW
+          reset_value: 0x00
+          description: Sub-nanosecond fractional counter
+
+    - name: RTC_PERIOD_NS
+      offset: 0x20
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC base period nanoseconds — integer part of clock period
+      fields:
+        - name: PERIOD_NS
+          bits: "7:0"
+          access: RW
+          reset_value: 0x00
+          description: Base period integer nanoseconds (e.g. 8 for 125 MHz)
+
+    - name: RTC_PERIOD_NSF
+      offset: 0x24
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: >
+        RTC base period nanoseconds fractional — fractional part of clock period.
+        Together with PERIOD_NS defines the nominal RTC increment per clock cycle.
+
+    - name: RTC_ADJPER_NS
+      offset: 0x28
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC adjustment period nanoseconds — temporary period override for frequency correction
+      fields:
+        - name: ADJPER_NS
+          bits: "7:0"
+          access: RW
+          reset_value: 0x00
+          description: Adjustment period integer nanoseconds
+
+    - name: RTC_ADJPER_NSF
+      offset: 0x2C
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RTC adjustment period nanoseconds fractional
+
+    - name: RTC_ADJLD
+      offset: 0x30
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: >
+        RTC adjustment load count — number of clock cycles to apply the adjusted
+        period before reverting to the base period. Used for fine frequency tuning.
+
+    # =========================================================================
+    # RX Timestamp Unit (0x40 - 0x5F)
+    # =========================================================================
+    - name: RX_TSU_CTRL
+      offset: 0x40
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: RX timestamp unit control register
+      fields:
+        - name: RX_Q_RD
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Read next RX timestamp from queue (pulse, advances FIFO)
+        - name: RX_Q_RST
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Reset RX timestamp queue (pulse, clears FIFO)
+
+    - name: RX_TSU_STAT
+      offset: 0x44
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: RX timestamp unit status register
+      fields:
+        - name: RX_Q_STAT
+          bits: "7:0"
+          access: RO
+          reset_value: 0x00
+          description: RX queue status (indicates queue depth / overflow)
+
+    - name: RX_TSU_DATA0
+      offset: 0x50
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: RX timestamp data word 0 (bits [127:96] — seconds high + flags)
+
+    - name: RX_TSU_DATA1
+      offset: 0x54
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: RX timestamp data word 1 (bits [95:64] — seconds low)
+
+    - name: RX_TSU_DATA2
+      offset: 0x58
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: RX timestamp data word 2 (bits [63:32] — nanoseconds)
+
+    - name: RX_TSU_DATA3
+      offset: 0x5C
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: RX timestamp data word 3 (bits [31:0] — frame hash / identifier)
+
+    # =========================================================================
+    # TX Timestamp Unit (0x60 - 0x7F)
+    # =========================================================================
+    - name: TX_TSU_CTRL
+      offset: 0x60
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: TX timestamp unit control register
+      fields:
+        - name: TX_Q_RD
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Read next TX timestamp from queue (pulse, advances FIFO)
+        - name: TX_Q_RST
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Reset TX timestamp queue (pulse, clears FIFO)
+
+    - name: TX_TSU_STAT
+      offset: 0x64
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: TX timestamp unit status register
+      fields:
+        - name: TX_Q_STAT
+          bits: "7:0"
+          access: RO
+          reset_value: 0x00
+          description: TX queue status (indicates queue depth / overflow)
+
+    - name: TX_TSU_DATA0
+      offset: 0x70
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: TX timestamp data word 0 (bits [127:96] — seconds high + flags)
+
+    - name: TX_TSU_DATA1
+      offset: 0x74
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: TX timestamp data word 1 (bits [95:64] — seconds low)
+
+    - name: TX_TSU_DATA2
+      offset: 0x78
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: TX timestamp data word 2 (bits [63:32] — nanoseconds)
+
+    - name: TX_TSU_DATA3
+      offset: 0x7C
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: TX timestamp data word 3 (bits [31:0] — frame hash / identifier)

@@ -1,0 +1,500 @@
+#-----------------------------------------------------------------------------
+# OpenCores Ethernet MAC Register Map
+# Based on OpenCores Ethernet MAC (eth_top) specification
+#
+# A joint work commissioned on behalf of SoC Labs, under Arm Academic Access license.
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+
+register_map:
+  name: ethmac
+  module: ethmac_ahb
+  description: >
+    OpenCores 10/100 Ethernet MAC controller. Provides MII/RMII PHY interface,
+    full/half duplex operation, multicast hash filtering, flow control, and
+    DMA-based buffer descriptor packet handling. Register access via AHB slave
+    port (bridge to internal WISHBONE). Buffer descriptors occupy a separate
+    region starting at offset 0x400.
+  address_width: 12
+  data_width: 32
+
+  registers:
+    - name: MODER
+      offset: 0x000
+      width: 32
+      access: RW
+      reset_value: 0x0000A000
+      description: Mode register — controls MAC operating modes
+      fields:
+        - name: RXEN
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Receive enable
+        - name: TXEN
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Transmit enable
+        - name: NOPRE
+          bits: "2"
+          access: RW
+          reset_value: 0
+          description: No preamble (suppress 7-byte preamble on TX)
+        - name: BRO
+          bits: "3"
+          access: RW
+          reset_value: 1
+          description: Broadcast accept (reject broadcast frames when 0)
+        - name: IAM
+          bits: "4"
+          access: RW
+          reset_value: 0
+          description: Use individual address hash (IAHash)
+        - name: PRO
+          bits: "5"
+          access: RW
+          reset_value: 0
+          description: Promiscuous mode (accept all frames)
+        - name: IFG
+          bits: "6"
+          access: RW
+          reset_value: 0
+          description: Inter-frame gap for incoming frames check
+        - name: LOOPBCK
+          bits: "7"
+          access: RW
+          reset_value: 0
+          description: Loopback mode (TX connected to RX internally)
+        - name: NOBCKOF
+          bits: "8"
+          access: RW
+          reset_value: 0
+          description: No backoff (immediate retransmit on collision, test mode)
+        - name: EXDFREN
+          bits: "9"
+          access: RW
+          reset_value: 0
+          description: Excess defer enable
+        - name: FULLD
+          bits: "10"
+          access: RW
+          reset_value: 0
+          description: Full duplex enable
+        - name: DLYCRCEN
+          bits: "12"
+          access: RW
+          reset_value: 0
+          description: Delayed CRC enable
+        - name: CRCEN
+          bits: "13"
+          access: RW
+          reset_value: 1
+          description: CRC enable (append CRC to TX frames)
+        - name: HUGEN
+          bits: "14"
+          access: RW
+          reset_value: 0
+          description: Huge frame enable (frames > MAXFL accepted)
+        - name: PAD
+          bits: "15"
+          access: RW
+          reset_value: 1
+          description: Padding enable (pad short frames to MINFL)
+        - name: RECSMALL
+          bits: "16"
+          access: RW
+          reset_value: 0
+          description: Receive small frames (frames < MINFL accepted)
+
+    - name: INT_SOURCE
+      offset: 0x004
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: >
+        Interrupt source register — each bit indicates a pending interrupt.
+        Write 1 to a bit to clear the corresponding interrupt.
+      fields:
+        - name: TXB
+          bits: "0"
+          access: W1C
+          reset_value: 0
+          description: Transmit buffer interrupt (frame transmitted)
+        - name: TXE
+          bits: "1"
+          access: W1C
+          reset_value: 0
+          description: Transmit error interrupt
+        - name: RXB
+          bits: "2"
+          access: W1C
+          reset_value: 0
+          description: Receive buffer interrupt (frame received)
+        - name: RXE
+          bits: "3"
+          access: W1C
+          reset_value: 0
+          description: Receive error interrupt
+        - name: BUSY
+          bits: "4"
+          access: W1C
+          reset_value: 0
+          description: Busy interrupt (frame dropped, no free RX buffer descriptor)
+        - name: TXC
+          bits: "5"
+          access: W1C
+          reset_value: 0
+          description: Transmit control frame interrupt
+        - name: RXC
+          bits: "6"
+          access: W1C
+          reset_value: 0
+          description: Receive control frame interrupt
+
+    - name: INT_MASK
+      offset: 0x008
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Interrupt mask register — set bits to enable corresponding interrupts
+      fields:
+        - name: TXB_M
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Transmit buffer interrupt mask
+        - name: TXE_M
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Transmit error interrupt mask
+        - name: RXB_M
+          bits: "2"
+          access: RW
+          reset_value: 0
+          description: Receive buffer interrupt mask
+        - name: RXE_M
+          bits: "3"
+          access: RW
+          reset_value: 0
+          description: Receive error interrupt mask
+        - name: BUSY_M
+          bits: "4"
+          access: RW
+          reset_value: 0
+          description: Busy interrupt mask
+        - name: TXC_M
+          bits: "5"
+          access: RW
+          reset_value: 0
+          description: Transmit control frame interrupt mask
+        - name: RXC_M
+          bits: "6"
+          access: RW
+          reset_value: 0
+          description: Receive control frame interrupt mask
+
+    - name: IPGT
+      offset: 0x00C
+      width: 32
+      access: RW
+      reset_value: 0x00000012
+      description: Inter-packet gap transmit time (back-to-back)
+      fields:
+        - name: IPGT
+          bits: "6:0"
+          access: RW
+          reset_value: 0x12
+          description: Gap time in nibble times (default 18 = 0x12 for full duplex)
+
+    - name: IPGR1
+      offset: 0x010
+      width: 32
+      access: RW
+      reset_value: 0x0000000C
+      description: Inter-packet gap receive register 1 (non-back-to-back, part 1)
+      fields:
+        - name: IPGR1
+          bits: "6:0"
+          access: RW
+          reset_value: 0x0C
+          description: First part of non-back-to-back inter-packet gap (default 12)
+
+    - name: IPGR2
+      offset: 0x014
+      width: 32
+      access: RW
+      reset_value: 0x00000012
+      description: Inter-packet gap receive register 2 (non-back-to-back, part 2)
+      fields:
+        - name: IPGR2
+          bits: "6:0"
+          access: RW
+          reset_value: 0x12
+          description: Second part of non-back-to-back inter-packet gap (default 18)
+
+    - name: PACKETLEN
+      offset: 0x018
+      width: 32
+      access: RW
+      reset_value: 0x00400600
+      description: Packet length register — minimum and maximum frame lengths
+      fields:
+        - name: MINFL
+          bits: "15:0"
+          access: RW
+          reset_value: 0x0040
+          description: Minimum frame length (default 64 bytes)
+        - name: MAXFL
+          bits: "31:16"
+          access: RW
+          reset_value: 0x0600
+          description: Maximum frame length (default 1536 bytes)
+
+    - name: COLLCONF
+      offset: 0x01C
+      width: 32
+      access: RW
+      reset_value: 0x000F003F
+      description: Collision and retry configuration
+      fields:
+        - name: COLLVALID
+          bits: "5:0"
+          access: RW
+          reset_value: 0x3F
+          description: Collision valid window (in clock cycles)
+        - name: MAXRET
+          bits: "19:16"
+          access: RW
+          reset_value: 0xF
+          description: Maximum retransmission attempts before abort
+
+    - name: TX_BD_NUM
+      offset: 0x020
+      width: 32
+      access: RW
+      reset_value: 0x00000040
+      description: Number of transmit buffer descriptors (max 0x80 = 128)
+      fields:
+        - name: TX_BD_NUM
+          bits: "7:0"
+          access: RW
+          reset_value: 0x40
+          description: TX buffer descriptor count (RX descriptors = 128 - TX_BD_NUM)
+
+    - name: CTRLMODER
+      offset: 0x024
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Control module mode register
+      fields:
+        - name: PASSALL
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Pass all frames (including those with bad CRC)
+        - name: RXFLOW
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Receive flow control enable (honour PAUSE frames)
+        - name: TXFLOW
+          bits: "2"
+          access: RW
+          reset_value: 0
+          description: Transmit flow control enable (send PAUSE frames)
+
+    - name: MIIMODER
+      offset: 0x028
+      width: 32
+      access: RW
+      reset_value: 0x00000064
+      description: MII mode register — clock divider and preamble control
+      fields:
+        - name: CLKDIV
+          bits: "7:0"
+          access: RW
+          reset_value: 0x64
+          description: Clock divider for MDC generation (MDC = HCLK / (2 * CLKDIV))
+        - name: MIINOPRE
+          bits: "8"
+          access: RW
+          reset_value: 0
+          description: Suppress MII management preamble
+
+    - name: MIICOMMAND
+      offset: 0x02C
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: MII command register — triggers PHY management operations
+      fields:
+        - name: SCANSTAT
+          bits: "0"
+          access: RW
+          reset_value: 0
+          description: Continuously scan PHY status register
+        - name: RSTAT
+          bits: "1"
+          access: RW
+          reset_value: 0
+          description: Read PHY register (single read, auto-clears)
+        - name: WCTRLDATA
+          bits: "2"
+          access: RW
+          reset_value: 0
+          description: Write PHY register (single write, auto-clears)
+
+    - name: MIIADDRESS
+      offset: 0x030
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: MII address register — selects PHY and register
+      fields:
+        - name: FIAD
+          bits: "4:0"
+          access: RW
+          reset_value: 0x00
+          description: PHY address (0-31)
+        - name: RGAD
+          bits: "12:8"
+          access: RW
+          reset_value: 0x00
+          description: PHY register address (0-31)
+
+    - name: MIITX_DATA
+      offset: 0x034
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: MII transmit data — data written to PHY register via MDIO
+      fields:
+        - name: CTRLDATA
+          bits: "15:0"
+          access: RW
+          reset_value: 0x0000
+          description: Data to write to PHY register
+
+    - name: MIIRX_DATA
+      offset: 0x038
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: MII receive data — data read from PHY register via MDIO
+      fields:
+        - name: PRSD
+          bits: "15:0"
+          access: RO
+          reset_value: 0x0000
+          description: Data read from PHY register
+
+    - name: MIISTATUS
+      offset: 0x03C
+      width: 32
+      access: RO
+      reset_value: 0x00000000
+      description: MII status register — PHY management interface status
+      fields:
+        - name: LINKFAIL
+          bits: "0"
+          access: RO
+          reset_value: 0
+          description: PHY link failure detected
+        - name: BUSY
+          bits: "1"
+          access: RO
+          reset_value: 0
+          description: MII management operation in progress
+        - name: NVALID
+          bits: "2"
+          access: RO
+          reset_value: 0
+          description: Read data not valid (scan in progress)
+
+    - name: MAC_ADDR0
+      offset: 0x040
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: MAC address register 0 — lower 4 bytes of station MAC address
+      fields:
+        - name: MACADDR2
+          bits: "7:0"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 2
+        - name: MACADDR3
+          bits: "15:8"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 3
+        - name: MACADDR4
+          bits: "23:16"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 4
+        - name: MACADDR5
+          bits: "31:24"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 5 (MSB, transmitted first)
+
+    - name: MAC_ADDR1
+      offset: 0x044
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: MAC address register 1 — upper 2 bytes of station MAC address
+      fields:
+        - name: MACADDR0
+          bits: "7:0"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 0 (LSB, transmitted last)
+        - name: MACADDR1
+          bits: "15:8"
+          access: RW
+          reset_value: 0x00
+          description: MAC address byte 1
+
+    - name: HASH0
+      offset: 0x048
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Multicast hash table register 0 (bits 31:0 of 64-bit hash)
+
+    - name: HASH1
+      offset: 0x04C
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Multicast hash table register 1 (bits 63:32 of 64-bit hash)
+
+    - name: TX_CTRL
+      offset: 0x050
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Transmit control — PAUSE frame control
+      fields:
+        - name: TXPAUSETV
+          bits: "15:0"
+          access: RW
+          reset_value: 0x0000
+          description: PAUSE timer value (inserted into outgoing PAUSE frame)
+        - name: TXPAUSEREQ
+          bits: "16"
+          access: RW
+          reset_value: 0
+          description: Transmit PAUSE frame request (auto-clears after send)
+
+    - name: RX_CTRL
+      offset: 0x054
+      width: 32
+      access: RW
+      reset_value: 0x00000000
+      description: Receive control — reserved for future use

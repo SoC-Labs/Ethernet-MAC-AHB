@@ -1,0 +1,101 @@
+#-----------------------------------------------------------------------------
+# Ethernet MAC Subsystem AHB Module
+# A joint work commissioned on behalf of SoC Labs, under Arm Academic Access license.
+#
+# Contributors
+#
+# David Mapstone (d.a.mapstone@soton.ac.uk)
+#
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+# Derived from RTL: ethernet-mac-ahb/src/rtl/ethmac_ahb.v
+#                   ethernet-mac-ahb/src/rtl/ha1588_ahb.v
+#
+# Combined Ethernet MAC + IEEE 1588 PTP timestamping subsystem with AHB
+# interfaces. Provides a single AHB slave port for register access to both
+# peripherals (address-decoded), and a single AHB master port for the
+# Ethernet MAC's DMA engine.
+#
+# Internal address map (from AHB slave port):
+#   0x0000 - 0x0FFF   Ethernet MAC registers & buffer descriptors
+#   0x1000 - 0x1FFF   HA1588 PTP registers
+#
+# Architecture:
+#                                    +--> ahb3lite_to_wb --> eth_top (regs)
+#   AHB Slave --> address decode  -->|
+#                                    +--> ahb3lite_to_wb --> wb_slv_wrapper --> ha1588
+#
+#   AHB Master <-- wb_to_ahb3lite <-- eth_top (DMA)
+#
+#   MII <---------> eth_top (PHY interface)
+#   GMII monitor -> ha1588 (timestamping)
+#   RTC outputs  <- ha1588
+#   int_o        <- eth_top
+
+module:
+  name: ethmac_subsystem_ahb
+  gen: False
+  desc: >
+    Combined Ethernet MAC and IEEE 1588 PTP timestamping subsystem with AHB
+    interfaces. The Ethernet MAC (OpenCores eth_top) provides 10/100 Mbps
+    MII-based Ethernet with DMA-driven buffer descriptor packet handling.
+    The HA1588 PTP core provides hardware timestamping for IEEE 1588
+    Precision Time Protocol. A single AHB slave port serves both
+    peripherals via internal address decoding. The Ethernet MAC DMA engine
+    is exposed via an AHB master port for packet buffer access.
+
+  params:
+    SYS_ADDR_W: { type: int, default: 32, desc: "System address width" }
+    SYS_DATA_W: { type: int, default: 32, desc: "System data width" }
+
+  interfaces:
+    # Clock and Reset
+    - { name: HCLK,    type: wire, direction: in, params: { WIDTH: 1 }, desc: "AHB clock" }
+    - { name: HRESETn, type: wire, direction: in, params: { WIDTH: 1 }, desc: "AHB reset (active low)" }
+
+    # AHB slave port (register access to both Ethernet MAC and HA1588 PTP)
+    - { name: ahb_slave, type: ahb, direction: target, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W }, desc: "AHB slave port — Ethernet MAC registers (0x0000-0x0FFF), HA1588 PTP registers (0x1000-0x1FFF)" }
+
+    # AHB master port (Ethernet MAC DMA for packet transfer)
+    - { name: ahb_master, type: ahb, direction: initiator, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W }, desc: "AHB master port — Ethernet MAC DMA engine for TX/RX packet buffer access" }
+
+    # RTC Clock
+    - { name: rtc_clk, type: wire, direction: in, params: { WIDTH: 1 }, desc: "RTC reference clock for IEEE 1588 PTP timestamping" }
+
+    # RTC Time Outputs
+    - { name: rtc_time_ptp_ns,  type: wire, direction: out, params: { WIDTH: 32 }, desc: "PTP nanoseconds output" }
+    - { name: rtc_time_ptp_sec, type: wire, direction: out, params: { WIDTH: 48 }, desc: "PTP seconds output (48-bit)" }
+    - { name: rtc_time_one_pps, type: wire, direction: out, params: { WIDTH: 1 },  desc: "One pulse-per-second output" }
+
+    # MII Transmit
+    - { name: mtx_clk_i,  type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII transmit clock" }
+    - { name: mtxd_o,     type: wire, direction: out, params: { WIDTH: 4 }, desc: "MII transmit data" }
+    - { name: mtxen_o,    type: wire, direction: out, params: { WIDTH: 1 }, desc: "MII transmit enable" }
+    - { name: mtxerr_o,   type: wire, direction: out, params: { WIDTH: 1 }, desc: "MII transmit error" }
+
+    # MII Receive
+    - { name: mrx_clk_i,  type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII receive clock" }
+    - { name: mrxd_i,     type: wire, direction: in,  params: { WIDTH: 4 }, desc: "MII receive data" }
+    - { name: mrxdv_i,    type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII receive data valid" }
+    - { name: mrxerr_i,   type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII receive error" }
+
+    # MII Common
+    - { name: mcoll_i,    type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII collision detect" }
+    - { name: mcrs_i,     type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MII carrier sense" }
+
+    # MII Management Interface (MDIO)
+    - { name: md_pad_i,   type: wire, direction: in,  params: { WIDTH: 1 }, desc: "MDIO data input" }
+    - { name: mdc_pad_o,  type: wire, direction: out, params: { WIDTH: 1 }, desc: "MDIO clock output" }
+    - { name: md_pad_o,   type: wire, direction: out, params: { WIDTH: 1 }, desc: "MDIO data output" }
+    - { name: md_padoe_o, type: wire, direction: out, params: { WIDTH: 1 }, desc: "MDIO data output enable" }
+
+    # Interrupt
+    - { name: int_o, type: wire, direction: out, params: { WIDTH: 1 }, desc: "Ethernet MAC interrupt output" }
+
+  register_maps:
+    - name: ethmac
+      base_offset: 0x0000
+      description: Ethernet MAC registers and buffer descriptors
+    - name: ha1588
+      base_offset: 0x1000
+      description: HA1588 IEEE 1588 PTP registers
