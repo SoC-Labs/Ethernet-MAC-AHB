@@ -583,6 +583,66 @@ design-compiler-ha1588:
       - syn/asic/design-compiler/ha1588_ahb_dc.log
     expire_in: 30 days
 
+# ── Ethernet Subsystem APB Synthesis ─────────────────────────────────────
+
+rtl-architect-subsystem:
+  stage: synthesis
+  needs: [clone, preflight]
+  tags:
+    - rtl_architect
+  before_script:
+    - export PATH="$RTLA_HOME/bin:$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+  script:
+    - echo "RTL Architect version:" && rtl_shell -version 2>&1 | head -3
+    - make -C "$WORK_DIR/syn/asic/rtl-architect" ra MODULE=ethmac_subsystem_apb
+  after_script:
+    - mkdir -p syn/asic/rtl-architect
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/ethmac_subsystem_apb_ra_reports" syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/rtl-architect/ethmac_subsystem_apb_ra.log"     syn/asic/rtl-architect/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/rpts_fc"    syn/asic/rtl-architect/subsystem_rpts_fc/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/rtl-architect/RTLA_WORK/logs_rtl"  syn/asic/rtl-architect/subsystem_logs_rtl/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/rtl-architect/ethmac_subsystem_apb_ra_reports/
+      - syn/asic/rtl-architect/ethmac_subsystem_apb_ra.log
+      - syn/asic/rtl-architect/subsystem_rpts_fc/
+      - syn/asic/rtl-architect/subsystem_logs_rtl/
+    expire_in: 30 days
+
+design-compiler-subsystem:
+  stage: synthesis
+  needs:
+    - job: clone
+    - job: preflight
+  tags:
+    - design_compiler
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+  script:
+    - echo "DC version:" && { dc_shell -version 2>&1 | head -3 || true; }
+    - make -C "$WORK_DIR/syn/asic/design-compiler" syn MODULE=ethmac_subsystem_apb
+  after_script:
+    - mkdir -p syn/asic/design-compiler
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ethmac_subsystem_apb_dc_reports" syn/asic/design-compiler/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/syn/asic/design-compiler/ethmac_subsystem_apb_dc_output"  syn/asic/design-compiler/ 2>/dev/null || true
+    - cp    "$WORK_DIR/syn/asic/design-compiler/ethmac_subsystem_apb_dc.log"     syn/asic/design-compiler/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - syn/asic/design-compiler/ethmac_subsystem_apb_dc_reports/
+      - syn/asic/design-compiler/ethmac_subsystem_apb_dc_output/
+      - syn/asic/design-compiler/ethmac_subsystem_apb_dc.log
+    expire_in: 30 days
+
 # ── Gate-Level Simulation ──────────────────────────────────────────────
 
 # gate-level-sim:

@@ -81,9 +81,22 @@ set_clock_uncertainty 0.1 [get_clocks $clk_name]
 # Reset: treat as asynchronous, don't time it
 set_false_path -from [get_ports $rst_name]
 
+# Additional clock: rtc_clk (present on ethmac_subsystem_apb)
+# Asynchronous to the main APB clock — constrain separately with false paths
+set has_rtc_clk [sizeof_collection [get_ports rtc_clk -quiet]]
+if {$has_rtc_clk > 0} {
+    create_clock -name rtc_clk -period $clk_period [get_ports rtc_clk]
+    set_clock_uncertainty 0.1 [get_clocks rtc_clk]
+    set_false_path -from [get_clocks $clk_name] -to [get_clocks rtc_clk]
+    set_false_path -from [get_clocks rtc_clk]   -to [get_clocks $clk_name]
+    puts "INFO: Created async clock rtc_clk with false paths to $clk_name"
+}
+
 # Input/output delays (25% of clock period as default estimate)
 set io_delay [expr {$clk_period * 0.25}]
-set all_inputs  [remove_from_collection [all_inputs] [get_ports [list $clk_name $rst_name]]]
+set exclude_ports [list $clk_name $rst_name]
+if {$has_rtc_clk > 0} { lappend exclude_ports rtc_clk }
+set all_inputs  [remove_from_collection [all_inputs] [get_ports $exclude_ports]]
 set all_outputs [all_outputs]
 
 set_input_delay  -clock $clk_name $io_delay $all_inputs

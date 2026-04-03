@@ -8,6 +8,8 @@ export ETHMAC_AHB_HOME := $(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 export ETHMAC_IP_DIR ?= /research/AAA/ip_library/OpenCores-EthMAC
 # OpenCores HA1588 IEEE 1588 PTP IP (required for ha1588 and submodules)
 export HA1588_IP_DIR ?= /research/AAA/ip_library/OpenCores-HA1588
+# ARM CMSDK (APB mux, SRAM models — required for ethmac_subsystem_apb)
+export CMSDK_DIR     ?= /research/AAA/ip_library/BP210/BP210-BU-00000-r1p1-00rel0
 
 # ── Target module ──────────────────────────────────────────────────────────
 export MODULE ?= ethmac_ahb
@@ -55,8 +57,8 @@ export TLUPLUS_MAP    ?= $(TLUPLUS_PATH)/tluplus.map
 export CLK_PERIOD      ?= 4.0
 export CLK_UNCERTAINTY ?= 0.35
 
-# Per-module clock/reset names (APB wrapper uses pclk/presetn)
-ifeq ($(MODULE),ha1588_apb)
+# Per-module clock/reset names (APB wrappers use pclk/presetn)
+ifneq (,$(filter $(MODULE),ha1588_apb ethmac_subsystem_apb))
   export CLK_NAME ?= pclk
   export RST_NAME ?= presetn
 else
@@ -68,4 +70,4 @@ endif
 # Note: Bridge modules (rmii_to_mii, ahb3lite_to_wb, wb_to_ahb3lite, apb_to_wb)
 # are in the amba_wb_bridges/ submodule.
 # Run: make -C ../../amba_wb_bridges/syn/asic/design-compiler syn MODULE=<name>
-MODULES = ethmac_ahb ethmac_ahb_rmii ha1588_ahb ha1588_apb
+MODULES = ethmac_ahb ethmac_ahb_rmii ha1588_ahb ha1588_apb ethmac_subsystem_apb
