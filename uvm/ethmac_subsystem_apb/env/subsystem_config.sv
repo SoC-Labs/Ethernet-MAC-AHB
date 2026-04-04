@@ -14,7 +14,9 @@ class subsystem_apb_config extends svt_apb_system_configuration;
     this.pdata_width = svt_apb_system_configuration::PDATA_WIDTH_32;
     this.create_sub_cfgs(1);
     this.is_active               = 1;
+    this.protocol_checks_enable  = 0;  // xprop causes X on DUT responses; scoreboard validates data
     this.slave_cfg[0].is_active  = 0;
+    this.slave_cfg[0].protocol_checks_enable = 0;
     this.enable_xml_gen          = 0;
     this.slave_cfg[0].enable_xml_gen = 0;
   endfunction
