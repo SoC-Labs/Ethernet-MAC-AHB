@@ -38,6 +38,7 @@ class subsystem_reset_test extends subsystem_base_test;
     dut_if.assert_reset();
     repeat (10) @(posedge apb_vif.pclk);
     dut_if.deassert_reset();
+    env.sb.reset();  // clear scoreboard shadow — DUT state is now reset
     repeat (10) @(posedge apb_vif.pclk);
 
     // Read MODER default

@@ -31,7 +31,9 @@ module test_top;
   bit   clk;
   bit   rtc_clk;
   bit   mtx_clk, mrx_clk;
-  logic rst_n;
+  logic rst_n_init;
+  logic rst_override_n;
+  wire  rst_n = rst_n_init & rst_override_n;
 
   initial begin
     clk = 1'b0;
@@ -54,9 +56,9 @@ module test_top;
   end
 
   initial begin
-    rst_n = 1'b0;
+    rst_n_init = 1'b0;
     repeat (10) @(posedge clk);
-    rst_n = 1'b1;
+    rst_n_init = 1'b1;
   end
 
   // ---------------------------------------------------------------
@@ -225,6 +227,9 @@ module test_top;
     .htrans          (dut_htrans),
     .rtc_time_ptp_ns (rtc_time_ptp_ns)
   );
+
+  // Propagate reset override from dut_if back to test_top
+  always_comb rst_override_n = dut_if.rst_override_n;
 
   // ---------------------------------------------------------------
   // Waveform dumping

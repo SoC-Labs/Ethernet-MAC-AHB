@@ -41,10 +41,8 @@ VCS  = $(VCS_HOME)/bin/vcs
 
 VCS_FLAGS  = -full64 -sverilog
 VCS_FLAGS += -ntb_opts uvm-1.2
-# Note: xprop disabled — OpenCores eth_top/ha1588 lack full reset coverage,
-# producing X on register reads that cause false scoreboard mismatches.
-# X-propagation is verified separately via the formal/xprop flow.
-# VCS_FLAGS += -xprop=tmerge
+VCS_FLAGS += -xprop=tmerge
+VCS_FLAGS += +vcs+initreg+random
 VCS_FLAGS += -timescale=1ns/1ps
 VCS_FLAGS += -l $(SIM_DIR)/compile.log
 VCS_FLAGS += -o $(SIM_DIR)/simv
@@ -131,6 +129,7 @@ SIM_FLAGS  = +UVM_TESTNAME=$(TEST)
 SIM_FLAGS += +UVM_VERBOSITY=$(VERBOSITY)
 SIM_FLAGS += -cm line+cond+tgl+fsm+branch
 SIM_FLAGS += -cm_dir $(SIM_DIR)/simv.vdb
+SIM_FLAGS += +vcs+initreg+random
 SIM_FLAGS += -l $(TEST).log
 
 ifneq ($(SEED),random)

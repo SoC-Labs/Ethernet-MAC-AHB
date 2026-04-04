@@ -16,14 +16,17 @@ interface subsystem_dut_if (
   input logic [31:0] rtc_time_ptp_ns
 );
 
+  // Reset override — driven by test tasks, active low
+  logic rst_override_n = 1'b1;
+
   // Reset control tasks — allow tests to assert/deassert reset
   // without hierarchical references from within a package.
   task assert_reset();
-    force rst_n = 1'b0;
+    rst_override_n = 1'b0;
   endtask
 
   task deassert_reset();
-    release rst_n;
+    rst_override_n = 1'b1;
   endtask
 
 endinterface
