@@ -20,7 +20,7 @@ class subsystem_random_test extends subsystem_base_test;
     `uvm_info("TEST", "=== Subsystem Random Test ===", UVM_LOW)
     mixed = apb_mixed_sequence::type_id::create("mixed");
     mixed.num_transfers = 200;
-    mixed.start(env.apb_sys_env.master[0].sequencer);
+    mixed.start(env.apb_sys_env.master.sequencer);
 
     repeat (50) @(posedge apb_vif.pclk);
     phase.drop_objection(this);

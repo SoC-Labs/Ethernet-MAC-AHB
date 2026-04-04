@@ -38,8 +38,8 @@ class subsystem_env extends uvm_env;
 
   virtual function void connect_phase(uvm_phase phase);
     super.connect_phase(phase);
-    apb_sys_env.master[0].monitor.item_observed_port.connect(sb.apb_export);
-    apb_sys_env.master[0].monitor.item_observed_port.connect(cov.apb_export);
+    apb_sys_env.master.monitor.item_observed_port.connect(sb.apb_export);
+    apb_sys_env.master.monitor.item_observed_port.connect(cov.apb_export);
   endfunction
 endclass
 

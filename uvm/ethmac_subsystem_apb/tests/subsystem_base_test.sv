@@ -14,6 +14,7 @@ class subsystem_base_test extends uvm_test;
 
   virtual svt_apb_if apb_vif;
   virtual svt_ahb_if ahb_vif;
+  virtual subsystem_dut_if dut_if;
 
   function new(string name = "subsystem_base_test", uvm_component parent = null);
     super.new(name, parent);
@@ -26,6 +27,8 @@ class subsystem_base_test extends uvm_test;
       `uvm_fatal("NOVIF", "APB VIF not set")
     if (!uvm_config_db#(virtual svt_ahb_if)::get(this, "", "ahb_vif", ahb_vif))
       `uvm_fatal("NOVIF", "AHB VIF not set")
+    if (!uvm_config_db#(virtual subsystem_dut_if)::get(this, "", "dut_if", dut_if))
+      `uvm_fatal("NOVIF", "DUT IF not set")
 
     apb_cfg = subsystem_apb_config::type_id::create("apb_cfg");
     ahb_cfg = subsystem_ahb_config::type_id::create("ahb_cfg");

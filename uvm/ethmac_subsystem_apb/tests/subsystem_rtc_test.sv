@@ -19,13 +19,13 @@ class subsystem_rtc_test extends subsystem_base_test;
 
     `uvm_info("TEST", "=== Subsystem RTC Test (CP4.1-CP4.3) ===", UVM_LOW)
     rtc_seq = apb_rtc_sequence::type_id::create("rtc_seq");
-    rtc_seq.start(env.apb_sys_env.master[0].sequencer);
+    rtc_seq.start(env.apb_sys_env.master.sequencer);
 
-    // CP4.3: Verify PTP ns output is non-zero (check via hierarchical access)
-    if (test_top.rtc_time_ptp_ns === 32'h0)
+    // CP4.3: Verify PTP ns output is non-zero (check via DUT interface)
+    if (dut_if.rtc_time_ptp_ns === 32'h0)
       `uvm_warning("CP4.3", "rtc_time_ptp_ns is 0 — may need more time to accumulate")
     else
-      `uvm_info("CP4.3", $sformatf("rtc_time_ptp_ns = 0x%08h", test_top.rtc_time_ptp_ns), UVM_LOW)
+      `uvm_info("CP4.3", $sformatf("rtc_time_ptp_ns = 0x%08h", dut_if.rtc_time_ptp_ns), UVM_LOW)
 
     repeat (20) @(posedge apb_vif.pclk);
     phase.drop_objection(this);

@@ -16,6 +16,7 @@
 `include "svt_ahb.uvm.pkg"
 `include "svt_ahb_if.svi"
 
+`include "subsystem_dut_if.sv"
 `include "ethmac_subsystem_apb_pkg.sv"
 
 module test_top;
@@ -124,12 +125,12 @@ module test_top;
     .hresp            (ahb_if.slave_if[0].hresp[0]),
 
     // APB Slave (Registers)
-    .psel             (apb_if.master_if[0].psel),
-    .penable          (apb_if.master_if[0].penable),
-    .paddr            (apb_if.master_if[0].paddr),
-    .pwrite           (apb_if.master_if[0].pwrite),
-    .pwdata           (apb_if.master_if[0].pwdata),
-    .pstrb            (apb_if.master_if[0].pstrb),
+    .psel             (apb_if.psel[0]),
+    .penable          (apb_if.penable),
+    .paddr            (apb_if.paddr),
+    .pwrite           (apb_if.pwrite),
+    .pwdata           (apb_if.pwdata),
+    .pstrb            (apb_if.pstrb),
     .prdata           (dut_prdata),
     .pready           (dut_pready),
     .pslverr          (dut_pslverr),
@@ -167,21 +168,13 @@ module test_top;
   );
 
   // ---------------------------------------------------------------
-  // APB VIP: force DUT responses onto slave_if for VIP handshake
+  // APB VIP: force DUT responses onto interface for VIP handshake
   // ---------------------------------------------------------------
   initial begin
-    force apb_if.slave_if[0].pready  = dut_pready;
-    force apb_if.slave_if[0].prdata  = dut_prdata;
-    force apb_if.slave_if[0].pslverr = dut_pslverr;
+    force apb_if.pready[0]  = dut_pready;
+    force apb_if.prdata[0]  = dut_prdata;
+    force apb_if.pslverr[0] = dut_pslverr;
   end
-
-  // Pass master signals through to slave_if for passive monitoring
-  assign apb_if.slave_if[0].psel    = apb_if.master_if[0].psel;
-  assign apb_if.slave_if[0].penable = apb_if.master_if[0].penable;
-  assign apb_if.slave_if[0].paddr   = apb_if.master_if[0].paddr;
-  assign apb_if.slave_if[0].pwrite  = apb_if.master_if[0].pwrite;
-  assign apb_if.slave_if[0].pwdata  = apb_if.master_if[0].pwdata;
-  assign apb_if.slave_if[0].pstrb   = apb_if.master_if[0].pstrb;
 
   // ---------------------------------------------------------------
   // AHB VIP: DUT master outputs → VIP slave_if and passive master_if
@@ -205,6 +198,17 @@ module test_top;
 
     force ahb_if.slave_if[0].hsel = |dut_htrans;
   end
+
+  // ---------------------------------------------------------------
+  // DUT observability interface (package-safe access for tests)
+  // ---------------------------------------------------------------
+  subsystem_dut_if dut_if (
+    .clk             (clk),
+    .rst_n           (rst_n),
+    .int_o           (int_o),
+    .htrans          (dut_htrans),
+    .rtc_time_ptp_ns (rtc_time_ptp_ns)
+  );
 
   // ---------------------------------------------------------------
   // Waveform dumping
@@ -231,6 +235,9 @@ module test_top;
 
     uvm_config_db#(virtual svt_ahb_if)::set(uvm_root::get(),
       "uvm_test_top", "ahb_vif", ahb_if);
+
+    uvm_config_db#(virtual subsystem_dut_if)::set(uvm_root::get(),
+      "uvm_test_top", "dut_if", dut_if);
 
     run_test();
   end

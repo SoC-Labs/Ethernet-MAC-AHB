@@ -52,6 +52,9 @@ VCS_FLAGS += +define+UVM_DISABLE_AUTO_ITEM_RECORDING
 VCS_FLAGS += +define+SVT_APB_DISABLE_IMPLICIT_BUS_CONNECTION
 VCS_FLAGS += +define+SVT_AHB_DISABLE_IMPLICIT_BUS_CONNECTION
 VCS_FLAGS += +define+ETH_WISHBONE_B3
+# Bus widths: APB defaults to 8-bit data, AHB to 64-bit — match DUT (32-bit)
+VCS_FLAGS += +define+SVT_APB_MAX_DATA_WIDTH=32
+VCS_FLAGS += +define+SVT_AHB_MAX_DATA_WIDTH=32
 
 # Coverage
 VCS_FLAGS += -cm line+cond+tgl+fsm+branch

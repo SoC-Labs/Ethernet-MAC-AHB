@@ -31,7 +31,7 @@ class subsystem_dma_test extends subsystem_base_test;
     // path works and the TX BD clears.
 
     dma_seq = apb_dma_tx_sequence::type_id::create("dma_seq");
-    dma_seq.start(env.apb_sys_env.master[0].sequencer);
+    dma_seq.start(env.apb_sys_env.master.sequencer);
 
     repeat (50) @(posedge apb_vif.pclk);
     phase.drop_objection(this);

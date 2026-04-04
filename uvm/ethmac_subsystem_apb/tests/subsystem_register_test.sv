@@ -23,44 +23,44 @@ class subsystem_register_test extends subsystem_base_test;
     `uvm_info("TEST", "CP2.1: Read MODER default", UVM_LOW)
     rd_seq = apb_read_sequence::type_id::create("rd_seq");
     rd_seq.addr = 32'h0000;
-    rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP1.2 / CP3.1: PTP scratch write-read ──
     `uvm_info("TEST", "CP3.1: PTP scratch write-read", UVM_LOW)
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h1004;
     wr_rd_seq.data = 32'hDEADBEEF;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP2.2: ETH MODER write-readback ──
     `uvm_info("TEST", "CP2.2: MODER write-readback", UVM_LOW)
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h0000;
     wr_rd_seq.data = 32'h0000E003;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP2.3: INT_MASK ──
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h0008;
     wr_rd_seq.data = 32'h0000007F;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP2.4: MAC address ──
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h0040;
     wr_rd_seq.data = 32'hDEADBEEF;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h0044;
     wr_rd_seq.data = 32'h00001234;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP2.5: Buffer descriptor ──
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h0400;
     wr_rd_seq.data = 32'h12345678;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP2.6: Walking ones on HASH0 ──
     `uvm_info("TEST", "CP2.6: Walking ones on HASH0", UVM_LOW)
@@ -68,18 +68,18 @@ class subsystem_register_test extends subsystem_base_test;
       wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
       wr_rd_seq.addr = 32'h0048;
       wr_rd_seq.data = (32'h1 << i);
-      wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+      wr_rd_seq.start(env.apb_sys_env.master.sequencer);
     end
 
     // ── CP1.3: Interleaved access ──
     `uvm_info("TEST", "CP1.3: Interleaved ETH/PTP access", UVM_LOW)
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h004C; wr_rd_seq.data = 32'h11111111;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
     wr_rd_seq.addr = 32'h1020; wr_rd_seq.data = 32'h00000008;
-    wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP3.2–CP3.5: PTP register coverage ──
     begin
@@ -89,17 +89,17 @@ class subsystem_register_test extends subsystem_base_test;
         wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
         wr_rd_seq.addr = ptp_addrs[i];
         wr_rd_seq.data = 32'hA0000000 + i;
-        wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+        wr_rd_seq.start(env.apb_sys_env.master.sequencer);
       end
     end
 
     // ── CP3.5: TSU message ID mask ──
     wr_seq = apb_write_sequence::type_id::create("wr_seq");
     wr_seq.addr = 32'h1044; wr_seq.data = 32'hFF000000;
-    wr_seq.start(env.apb_sys_env.master[0].sequencer);
+    wr_seq.start(env.apb_sys_env.master.sequencer);
     rd_seq = apb_read_sequence::type_id::create("rd_seq");
     rd_seq.addr = 32'h1044;
-    rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    rd_seq.start(env.apb_sys_env.master.sequencer);
 
     // ── CP3.6: Walking ones on PTP scratch ──
     `uvm_info("TEST", "CP3.6: Walking ones on PTP scratch", UVM_LOW)
@@ -107,14 +107,14 @@ class subsystem_register_test extends subsystem_base_test;
       wr_rd_seq = apb_write_read_sequence::type_id::create("wr_rd_seq");
       wr_rd_seq.addr = 32'h1004;
       wr_rd_seq.data = (32'h1 << i);
-      wr_rd_seq.start(env.apb_sys_env.master[0].sequencer);
+      wr_rd_seq.start(env.apb_sys_env.master.sequencer);
     end
 
     // ── CP1.4: Disabled port ──
     `uvm_info("TEST", "CP1.4: Access disabled port", UVM_LOW)
     rd_seq = apb_read_sequence::type_id::create("rd_seq");
     rd_seq.addr = 32'h2000;
-    rd_seq.start(env.apb_sys_env.master[0].sequencer);
+    rd_seq.start(env.apb_sys_env.master.sequencer);
 
     repeat (20) @(posedge apb_vif.pclk);
     phase.drop_objection(this);
