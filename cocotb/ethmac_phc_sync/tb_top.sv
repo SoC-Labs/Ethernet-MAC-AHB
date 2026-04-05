@@ -111,9 +111,9 @@ module tb_top;
   wire        ha1588_servo_locked;
   wire        ha1588_servo_phase_step_active;
 
-  // PHC current time → ethmac servo
-  wire [47:0] phc_seconds;
-  wire [29:0] phc_nanoseconds;
+  // PHC current time → ethmac servo (not exposed by PHC; tied off, servo disabled)
+  wire [47:0] phc_seconds = 48'b0;
+  wire [29:0] phc_nanoseconds = 30'b0;
 
   // PHC hw capture readback → ethmac servo (Source 1)
   wire [47:0] phc_hw_cap_seconds_1;
