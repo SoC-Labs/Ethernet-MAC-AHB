@@ -100,6 +100,27 @@ module tb_top;
   wire        tx_ptp_event;
 
   // -------------------------------------------------------
+  // HA1588 Servo ↔ PHC wiring (Source 1)
+  // -------------------------------------------------------
+  wire        ha1588_hw_capture;
+  wire        ha1588_hw_set_time;
+  wire [47:0] ha1588_hw_set_seconds;
+  wire [29:0] ha1588_hw_set_nanoseconds;
+  wire        ha1588_hw_adj_valid;
+  wire [31:0] ha1588_hw_adj_ns_incr_frac;
+  wire        ha1588_servo_locked;
+  wire        ha1588_servo_phase_step_active;
+
+  // PHC current time → ethmac servo
+  wire [47:0] phc_seconds;
+  wire [29:0] phc_nanoseconds;
+
+  // PHC hw capture readback → ethmac servo (Source 1)
+  wire [47:0] phc_hw_cap_seconds_1;
+  wire [29:0] phc_hw_cap_nanoseconds_1;
+  wire [SYS_DATA_W-1:0] phc_hw_cap_sub_nanoseconds_1;
+
+  // -------------------------------------------------------
   // PHC APB Slave Port
   // -------------------------------------------------------
   reg         phc_psel;
@@ -183,7 +204,28 @@ module tb_top;
 
     // PTP Event Outputs → PHC
     .rx_ptp_event     (rx_ptp_event),
-    .tx_ptp_event     (tx_ptp_event)
+    .tx_ptp_event     (tx_ptp_event),
+
+    // HA1588 Hardware Servo — Control (tied off: servo disabled in this test)
+    .ha1588_servo_en           (1'b0),
+    .ha1588_sync_interval      (30'd100_000),
+
+    // HA1588 Hardware Servo — PHC time inputs
+    .phc_seconds               (phc_seconds),
+    .phc_nanoseconds           (phc_nanoseconds),
+    .phc_hw_cap_seconds        (phc_hw_cap_seconds_1),
+    .phc_hw_cap_nanoseconds    (phc_hw_cap_nanoseconds_1),
+    .phc_hw_cap_sub_nanoseconds(phc_hw_cap_sub_nanoseconds_1),
+
+    // HA1588 Hardware Servo — Outputs (→ PHC Source 1)
+    .ha1588_hw_capture              (ha1588_hw_capture),
+    .ha1588_hw_set_time             (ha1588_hw_set_time),
+    .ha1588_hw_set_seconds          (ha1588_hw_set_seconds),
+    .ha1588_hw_set_nanoseconds      (ha1588_hw_set_nanoseconds),
+    .ha1588_hw_adj_valid            (ha1588_hw_adj_valid),
+    .ha1588_hw_adj_ns_incr_frac     (ha1588_hw_adj_ns_incr_frac),
+    .ha1588_servo_locked            (ha1588_servo_locked),
+    .ha1588_servo_phase_step_active (ha1588_servo_phase_step_active)
   );
 
   // -------------------------------------------------------
@@ -207,20 +249,31 @@ module tb_top;
     .pready          (phc_pready),
     .pslverr         (phc_pslverr),
 
-    // Hardware capture (TideLink — tied off)
-    .hw_capture      (hw_capture),
+    // Hardware Servo Source 0 (TideLink — tied off)
+    .hw_capture_0_i            (hw_capture),
+    .hw_cap_seconds_0_o        (),
+    .hw_cap_nanoseconds_0_o    (),
+    .hw_cap_sub_nanoseconds_0_o(),
+    .hw_set_time_0_i           (1'b0),
+    .hw_set_seconds_0_i        (48'b0),
+    .hw_set_nanoseconds_0_i    (30'b0),
+    .hw_adj_valid_0_i          (1'b0),
+    .hw_adj_ns_incr_frac_0_i   ({SYS_DATA_W{1'b0}}),
 
-    // Hardware capture outputs (not used in this test)
-    .hw_cap_seconds_o        (),
-    .hw_cap_nanoseconds_o    (),
-    .hw_cap_sub_nanoseconds_o(),
+    // Hardware Servo Source 1 (HA1588 servo ← ethmac subsystem)
+    .hw_capture_1_i            (ha1588_hw_capture),
+    .hw_cap_seconds_1_o        (phc_hw_cap_seconds_1),
+    .hw_cap_nanoseconds_1_o    (phc_hw_cap_nanoseconds_1),
+    .hw_cap_sub_nanoseconds_1_o(phc_hw_cap_sub_nanoseconds_1),
+    .hw_set_time_1_i           (ha1588_hw_set_time),
+    .hw_set_seconds_1_i        (ha1588_hw_set_seconds),
+    .hw_set_nanoseconds_1_i    (ha1588_hw_set_nanoseconds),
+    .hw_adj_valid_1_i          (ha1588_hw_adj_valid),
+    .hw_adj_ns_incr_frac_1_i   (ha1588_hw_adj_ns_incr_frac),
 
-    // Hardware servo adjustment (tied off — not used in this test)
-    .hw_set_time_i       (1'b0),
-    .hw_set_seconds_i    (48'b0),
-    .hw_set_nanoseconds_i(30'b0),
-    .hw_adj_valid_i      (1'b0),
-    .hw_adj_ns_incr_frac_i(32'b0),
+    // Servo status
+    .servo_locked_i            (ha1588_servo_locked),
+    .servo_phase_step_active_i (ha1588_servo_phase_step_active),
 
     // Ethernet PTP capture ← from ethmac subsystem
     .eth_rx_capture  (rx_ptp_event),

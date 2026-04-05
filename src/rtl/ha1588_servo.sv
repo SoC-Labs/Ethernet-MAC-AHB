@@ -143,10 +143,29 @@ module ha1588_servo #(
     logic        timer_armed;
     logic        sync_fire;
 
-    assign sync_fire = enable && timer_armed &&
-                       (phc_seconds > target_seconds ||
-                        (phc_seconds == target_seconds &&
-                         phc_nanoseconds >= target_nanoseconds));
+    // Pre-register 48-bit seconds comparison to break timing-critical path.
+    // A 1-cycle suppress flag prevents spurious fires when the target changes,
+    // as the registered comparison needs one cycle to reflect the new target.
+    logic        seconds_past;
+    logic        seconds_match;
+    logic        target_suppress;
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            seconds_past    <= 1'b0;
+            seconds_match   <= 1'b0;
+            target_suppress <= 1'b1;
+        end else begin
+            seconds_past  <= (phc_seconds > target_seconds);
+            seconds_match <= (phc_seconds == target_seconds);
+            // Suppress for 1 cycle after target changes (arm, re-arm, or disable)
+            target_suppress <= !enable || !timer_armed || sync_fire;
+        end
+    end
+
+    assign sync_fire = enable && timer_armed && !target_suppress &&
+                       (seconds_past ||
+                        (seconds_match && phc_nanoseconds >= target_nanoseconds));
 
     // Timer target management
     always_ff @(posedge clk or negedge resetn) begin
@@ -203,7 +222,6 @@ module ha1588_servo #(
     // Offset computation
     logic signed [48:0] offset_sec;     // Signed seconds difference
     logic signed [30:0] offset_ns;      // Signed nanoseconds difference
-    logic               offset_large;   // Phase step needed
 
     // PI controller state
     logic signed [SYS_DATA_W-1:0] ns_incr_frac_accum;  // Running fractional increment
@@ -256,6 +274,12 @@ module ha1588_servo #(
     assign integral_update = offset_ns_ext >>> 2;
     assign correction      = proportional + integral;
 
+    // Phase step needed when offset exceeds threshold
+    logic offset_large;
+    assign offset_large = (offset_sec != '0) ||
+                          (offset_ns[30] ? (-offset_ns > {1'b0, DEFAULT_PHASE_STEP_THRESHOLD})
+                                         : ( offset_ns > {1'b0, DEFAULT_PHASE_STEP_THRESHOLD}));
+
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             capture_req_pulse   <= 1'b0;
@@ -271,7 +295,6 @@ module ha1588_servo #(
             latched_phc_ns      <= 30'b0;
             offset_sec          <= '0;
             offset_ns           <= '0;
-            offset_large        <= 1'b0;
             ns_incr_frac_accum  <= '0;
             integral            <= '0;
             lock_counter        <= 3'b0;
@@ -322,11 +345,6 @@ module ha1588_servo #(
                 end
 
                 S_ADJUST: begin
-                    // Check if phase step is needed
-                    offset_large = (offset_sec != '0) ||
-                                   (offset_ns[30] ? (-offset_ns > {1'b0, DEFAULT_PHASE_STEP_THRESHOLD})
-                                                  : ( offset_ns > {1'b0, DEFAULT_PHASE_STEP_THRESHOLD}));
-
                     if (offset_large) begin
                         // Phase step: load ha1588 time into PHC
                         hw_set_time        <= 1'b1;

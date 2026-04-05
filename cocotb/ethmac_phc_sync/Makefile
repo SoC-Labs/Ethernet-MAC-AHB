@@ -68,6 +68,7 @@ VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/tsu/tsu.v
 VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/tsu/ptp_parser.v
 VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/ptp_queue.v
 VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/bus/wishbone/wb_slv_wrapper.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_servo.sv
 
 # PHC
 VERILOG_SOURCES += $(PHC_HOME)/src/rtl/phc.sv
