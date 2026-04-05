@@ -71,4 +71,21 @@ VERILOG_SOURCES += $(PWD)/../../src/rtl/generic/ethmac_sram.v
 TOPLEVEL = tb_ethmac_ahb
 MODULE   = test_ethmac_ahb
 
+# ── C Driver Shared Library (for driver-in-the-loop testing) ────────────
+ETHMAC_SW    := $(PWD)/../../src/sw
+CC_HOST      := gcc
+CFLAGS_HOST  := -shared -fPIC -DHAL_TEST_MODE -O0 -g -Wall -Wextra
+
+libethmac_driver.so: $(ETHMAC_SW)/ethmac.c ethmac_test_wrappers.c \
+                     $(ETHMAC_SW)/ethmac.h $(ETHMAC_SW)/ethmac_regs.generated.h \
+                     $(ETHMAC_SW)/hal_io.h
+	$(CC_HOST) $(CFLAGS_HOST) -I$(ETHMAC_SW) -include $(ETHMAC_SW)/hal_io.h \
+	    $(ETHMAC_SW)/ethmac.c ethmac_test_wrappers.c -o $@
+
+.PHONY: driver-so clean-driver
+driver-so: libethmac_driver.so
+
+clean-driver:
+	rm -f libethmac_driver.so
+
 include $(shell cocotb-config --makefiles)/Makefile.sim

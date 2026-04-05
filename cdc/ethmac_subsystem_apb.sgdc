@@ -1,0 +1,40 @@
+#-----------------------------------------------------------------------------
+# SoCLabs Ethernet MAC AHB — SpyGlass CDC Design Constraints
+# Target: ethmac_subsystem_apb (Ethernet MAC + HA1588 PTP, APB slave)
+#
+# Clock domains:
+#   pclk_domain    — APB / system clock (register access, DMA, servo)
+#   mtx_domain     — MII transmit clock (from PHY, 25 MHz @ 100 Mbps)
+#   mrx_domain     — MII receive clock (from PHY, 25 MHz @ 100 Mbps)
+#   rtc_domain     — HA1588 RTC clock (high-precision PTP time-base)
+#
+# Contributors
+#
+# David Mapstone (d.a.mapstone@soton.ac.uk)
+#
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+
+current_design ethmac_subsystem_apb
+
+# ============================================================================
+# Clock Definitions
+# ============================================================================
+
+# Primary system clock — drives APB registers, AHB DMA, servo logic
+clock -name pclk          -domain pclk_domain  -period 10.0 [get_ports pclk]
+
+# MII transmit clock — from Ethernet PHY, asynchronous to pclk
+clock -name mtx_clk_pad_i -domain mtx_domain   -period 40.0 [get_ports mtx_clk_pad_i]
+
+# MII receive clock — from Ethernet PHY, asynchronous to pclk and mtx_clk
+clock -name mrx_clk_pad_i -domain mrx_domain   -period 40.0 [get_ports mrx_clk_pad_i]
+
+# HA1588 RTC clock — independent high-precision clock for PTP time-base
+clock -name rtc_clk        -domain rtc_domain   -period 10.0 [get_ports rtc_clk]
+
+# ============================================================================
+# Reset Definitions
+# ============================================================================
+
+reset -name presetn -value 0 [get_ports presetn]

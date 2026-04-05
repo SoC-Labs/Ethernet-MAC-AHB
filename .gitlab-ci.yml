@@ -32,6 +32,8 @@ variables:
   VIP_HOME: /eda/synopsys/2022-23/RHELx86/VC-VIP-SOC_2022.12
   # Cadence Xcelium (provides HAL linter)
   XCELIUM_HOME: /eda/cadence/xcelium
+  # Synopsys SpyGlass (CDC lint)
+  SPYGLASS_HOME: /eda/synopsys/2022-23/RHELx86/SPYGLASS_2022.06-SP2/SPYGLASS_HOME
   # Simulator selection for cocotb
   SIM: vcs
 
@@ -94,6 +96,7 @@ preflight:
       check_dir "VCS_HOME"      "$VCS_HOME"
       check_dir "VERDI_HOME"    "$VERDI_HOME"
       check_dir "XCELIUM_HOME"  "$XCELIUM_HOME"
+      check_dir "SPYGLASS_HOME" "$SPYGLASS_HOME"
       check_dir "RTLA_HOME"     "$RTLA_HOME"
       check_dir "VIP_HOME"      "$VIP_HOME"
 
@@ -110,8 +113,9 @@ preflight:
 
       echo ""
       echo "── Tool Binaries (with PATH set) ───────"
-      export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$XCELIUM_HOME/tools/bin:$RTLA_HOME/bin:$PATH"
+      export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$XCELIUM_HOME/tools/bin:$RTLA_HOME/bin:$SPYGLASS_HOME/bin:$PATH"
       check_bin "vcs"             "vcs"
+      check_bin "spyglass"        "spyglass"
       check_bin "hal"             "hal"
       check_bin "python3"         "python3"
       check_bin "cocotb-config"   "cocotb-config"
@@ -148,6 +152,33 @@ hal-lint:
     paths:
       - "*_hal.log"
       - "*_hal.xml"
+    expire_in: 30 days
+
+spyglass-cdc:
+  stage: lint
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$SPYGLASS_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+  script:
+    - echo "SpyGlass version:" && spyglass -batch -tcl "puts [get_tool_info version]; exit" 2>&1 | tail -1 || true
+    # CDC lint the full subsystem (4 clock domains: pclk, mtx_clk, mrx_clk, rtc_clk)
+    - make -C "$WORK_DIR/cdc" cdc MODULE=ethmac_subsystem_apb SPYGLASS_HOME="$SPYGLASS_HOME"
+    # CDC lint the MII-only variant (3 clock domains: hclk, mtx_clk, mrx_clk)
+    - make -C "$WORK_DIR/cdc" cdc MODULE=ethmac_ahb SPYGLASS_HOME="$SPYGLASS_HOME"
+  after_script:
+    - mkdir -p spyglass_cdc
+    - cp "$WORK_DIR/cdc/"*_cdc_summary.rpt spyglass_cdc/ 2>/dev/null || true
+    - cp -r "$WORK_DIR/cdc/"*_spyglass/cdc_verify/spyglass_reports spyglass_cdc/ 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - spyglass_cdc/
     expire_in: 30 days
 
 # ── Verification ─────────────────────────────────────────────────────────
@@ -223,6 +254,28 @@ ethmac_ahb:
   script:
     - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
     - make -C "$WORK_DIR/cocotb/ethmac_ahb"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_ahb/results.xml
+    paths:
+      - cocotb/ethmac_ahb/results.xml
+    expire_in: 30 days
+
+ethmac_ahb_cdriver:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" driver-so
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_ahb" MODULE=test_ethmac_ahb_cdriver
   artifacts:
     when: always
     reports:

@@ -1,0 +1,76 @@
+#-----------------------------------------------------------------------------
+# SoCLabs Ethernet MAC AHB — SpyGlass CDC Waivers
+#
+# Suppress CDC violations originating entirely within third-party IP.
+# SoCLabs-authored RTL (src/rtl/**) should NEVER be waived here —
+# add targeted waivers with justification comments instead.
+#
+# Contributors
+#
+# David Mapstone (d.a.mapstone@soton.ac.uk)
+#
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+
+# ============================================================================
+# Third-party IP: OpenCores Ethernet MAC (eth_top and submodules)
+# ============================================================================
+# The OpenCores Ethernet MAC has known CDC crossings between the WB/system
+# clock and the MII TX/RX clocks.  These are internal to the IP and have
+# been in production use for years.  Waive to focus on SoCLabs wrapper CDC.
+
+waiver -rule {*} -module {eth_top}              -comment "OpenCores EthMAC — third-party IP"
+waiver -rule {*} -module {eth_clockgen}         -comment "OpenCores EthMAC — MII clock divider"
+waiver -rule {*} -module {eth_cop}              -comment "OpenCores EthMAC — collision logic"
+waiver -rule {*} -module {eth_crc}              -comment "OpenCores EthMAC — CRC generator"
+waiver -rule {*} -module {eth_fifo}             -comment "OpenCores EthMAC — internal FIFO"
+waiver -rule {*} -module {eth_maccontrol}       -comment "OpenCores EthMAC — MAC control"
+waiver -rule {*} -module {eth_macstatus}        -comment "OpenCores EthMAC — MAC status"
+waiver -rule {*} -module {eth_miim}             -comment "OpenCores EthMAC — MII management"
+waiver -rule {*} -module {eth_outputcontrol}    -comment "OpenCores EthMAC — output control"
+waiver -rule {*} -module {eth_random}           -comment "OpenCores EthMAC — random backoff"
+waiver -rule {*} -module {eth_receivecontrol}   -comment "OpenCores EthMAC — RX control"
+waiver -rule {*} -module {eth_register}         -comment "OpenCores EthMAC — register"
+waiver -rule {*} -module {eth_registers}        -comment "OpenCores EthMAC — register file"
+waiver -rule {*} -module {eth_rxaddrcheck}      -comment "OpenCores EthMAC — RX address check"
+waiver -rule {*} -module {eth_rxcounters}       -comment "OpenCores EthMAC — RX counters"
+waiver -rule {*} -module {eth_rxethmac}         -comment "OpenCores EthMAC — RX MAC"
+waiver -rule {*} -module {eth_rxstatem}         -comment "OpenCores EthMAC — RX state machine"
+waiver -rule {*} -module {eth_shiftreg}         -comment "OpenCores EthMAC — shift register"
+waiver -rule {*} -module {eth_transmitcontrol}  -comment "OpenCores EthMAC — TX control"
+waiver -rule {*} -module {eth_txcounters}       -comment "OpenCores EthMAC — TX counters"
+waiver -rule {*} -module {eth_txethmac}         -comment "OpenCores EthMAC — TX MAC"
+waiver -rule {*} -module {eth_txstatem}         -comment "OpenCores EthMAC — TX state machine"
+waiver -rule {*} -module {eth_wishbone}         -comment "OpenCores EthMAC — WB interface (patched)"
+waiver -rule {*} -module {eth_spram_256x32}     -comment "OpenCores EthMAC — SRAM (patched)"
+
+# ============================================================================
+# Third-party IP: OpenCores HA1588 (PTP timestamp unit)
+# ============================================================================
+# HA1588 has internal CDC between rtc_clk and the WB/system clock.
+# The patched modules (ha1588, rtc, reg, ptp_queue) retain the original
+# CDC architecture.
+
+waiver -rule {*} -module {ha1588}               -comment "OpenCores HA1588 — PTP core (patched)"
+waiver -rule {*} -module {rtc}                  -comment "OpenCores HA1588 — RTC (patched)"
+waiver -rule {*} -module {ptp_parser}           -comment "OpenCores HA1588 — PTP frame parser"
+waiver -rule {*} -module {ptp_queue}            -comment "OpenCores HA1588 — timestamp queue (patched)"
+waiver -rule {*} -module {tsu}                  -comment "OpenCores HA1588 — timestamp unit"
+waiver -rule {*} -module {reg}                  -comment "OpenCores HA1588 — register file (patched)"
+waiver -rule {*} -module {wb_slv_wrapper}       -comment "OpenCores HA1588 — WB slave wrapper"
+
+# ============================================================================
+# Third-party IP: ARM CMSDK
+# ============================================================================
+
+waiver -rule {*} -module {cmsdk_fpga_sram}      -comment "ARM CMSDK — FPGA SRAM model"
+waiver -rule {*} -module {cmsdk_apb_slave_mux}  -comment "ARM CMSDK — APB slave mux"
+
+# ============================================================================
+# Third-party IP: AMBA/WISHBONE Bridges
+# ============================================================================
+# Bridge IP is single-clock (operates in system clock domain).
+
+waiver -rule {*} -module {ahb3lite_to_wb}       -comment "AMBA-WB bridge — single-clock"
+waiver -rule {*} -module {wb_to_ahb3lite}       -comment "WB-AMBA bridge — single-clock"
+waiver -rule {*} -module {apb_to_wb}            -comment "APB-WB bridge — single-clock"

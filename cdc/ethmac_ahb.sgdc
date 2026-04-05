@@ -1,0 +1,36 @@
+#-----------------------------------------------------------------------------
+# SoCLabs Ethernet MAC AHB — SpyGlass CDC Design Constraints
+# Target: ethmac_ahb (Ethernet MAC only, MII interface, no PTP)
+#
+# Clock domains:
+#   hclk_domain    — AHB / system clock (register access, DMA)
+#   mtx_domain     — MII transmit clock (from PHY, 25 MHz @ 100 Mbps)
+#   mrx_domain     — MII receive clock (from PHY, 25 MHz @ 100 Mbps)
+#
+# Contributors
+#
+# David Mapstone (d.a.mapstone@soton.ac.uk)
+#
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+
+current_design ethmac_ahb
+
+# ============================================================================
+# Clock Definitions
+# ============================================================================
+
+# Primary system clock — drives AHB registers and DMA
+clock -name hclk           -domain hclk_domain -period 10.0 [get_ports hclk]
+
+# MII transmit clock — from Ethernet PHY, asynchronous to hclk
+clock -name mtx_clk_pad_i  -domain mtx_domain  -period 40.0 [get_ports mtx_clk_pad_i]
+
+# MII receive clock — from Ethernet PHY, asynchronous to hclk and mtx_clk
+clock -name mrx_clk_pad_i  -domain mrx_domain  -period 40.0 [get_ports mrx_clk_pad_i]
+
+# ============================================================================
+# Reset Definitions
+# ============================================================================
+
+reset -name hresetn -value 0 [get_ports hresetn]
