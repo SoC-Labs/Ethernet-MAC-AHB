@@ -21,16 +21,16 @@ current_design ethmac_ahb
 # ============================================================================
 
 # Primary system clock — drives AHB registers and DMA
-clock -name hclk           -domain hclk_domain -period 10.0 [get_ports hclk]
+clock -name hclk           -domain hclk_domain -period 10.0
 
 # MII transmit clock — from Ethernet PHY, asynchronous to hclk
-clock -name mtx_clk_pad_i  -domain mtx_domain  -period 40.0 [get_ports mtx_clk_pad_i]
+clock -name mtx_clk_pad_i  -domain mtx_domain  -period 40.0
 
 # MII receive clock — from Ethernet PHY, asynchronous to hclk and mtx_clk
-clock -name mrx_clk_pad_i  -domain mrx_domain  -period 40.0 [get_ports mrx_clk_pad_i]
+clock -name mrx_clk_pad_i  -domain mrx_domain  -period 40.0
 
 # ============================================================================
 # Reset Definitions
 # ============================================================================
 
-reset -name hresetn -value 0 [get_ports hresetn]
+reset -name hresetn -value 0

@@ -22,19 +22,19 @@ current_design ethmac_subsystem_apb
 # ============================================================================
 
 # Primary system clock — drives APB registers, AHB DMA, servo logic
-clock -name pclk          -domain pclk_domain  -period 10.0 [get_ports pclk]
+clock -name pclk          -domain pclk_domain  -period 10.0
 
 # MII transmit clock — from Ethernet PHY, asynchronous to pclk
-clock -name mtx_clk_pad_i -domain mtx_domain   -period 40.0 [get_ports mtx_clk_pad_i]
+clock -name mtx_clk_pad_i -domain mtx_domain   -period 40.0
 
 # MII receive clock — from Ethernet PHY, asynchronous to pclk and mtx_clk
-clock -name mrx_clk_pad_i -domain mrx_domain   -period 40.0 [get_ports mrx_clk_pad_i]
+clock -name mrx_clk_pad_i -domain mrx_domain   -period 40.0
 
 # HA1588 RTC clock — independent high-precision clock for PTP time-base
-clock -name rtc_clk        -domain rtc_domain   -period 10.0 [get_ports rtc_clk]
+clock -name rtc_clk        -domain rtc_domain   -period 10.0
 
 # ============================================================================
 # Reset Definitions
 # ============================================================================
 
-reset -name presetn -value 0 [get_ports presetn]
+reset -name presetn -value 0
