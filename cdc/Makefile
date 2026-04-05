@@ -30,7 +30,6 @@ RPT_SUMMARY := $(MODULE)_cdc_summary.rpt
 # ── SpyGlass flags ───────────────────────────────────────────────────────────
 SG_FLAGS := -batch \
             -project $(PRJ) \
-            -reportdir $(RPTDIR) \
             -work_dir $(SG_WORK)
 
 .PHONY: cdc cdc-each cdc-report clean help
