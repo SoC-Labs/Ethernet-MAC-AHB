@@ -60,10 +60,10 @@ VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_spram_256x32.v
 VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_wishbone.v
 VERILOG_SOURCES += $(PWD)/../../src/rtl/generic/ethmac_sram.v
 
-# HA1588 PTP IP
-VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/top/ha1588.v
-VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/reg/reg.v
-VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/rtc/rtc.v
+# HA1588 PTP IP (patched reg, rtc, ha1588 for reset hygiene)
+VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/ha1588.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/reg.v
+VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/rtc.v
 VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/tsu/tsu.v
 VERILOG_SOURCES += $(HA1588_IP_DIR)/rtl/tsu/ptp_parser.v
 VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/ptp_queue.v

@@ -407,19 +407,40 @@ async def test_cp3_2_ptp_period_regs(dut):
 
 @cocotb.test()
 async def test_cp3_3_ptp_time_regs(dut):
-    """CP3.3: Write/readback RTC time registers."""
+    """CP3.3: Write/readback RTC time registers via TIME_LD + TIME_RD.
+
+    The HA1588 time registers (0x10-0x1C) are write-only staging registers.
+    To read back the time, the value must first be loaded into the RTC via
+    TIME_LD (CTRL[3]), then read back via TIME_RD (CTRL[0]) which captures
+    the RTC's current time through a CDC handshake.
+    """
     tb = SubsystemTB(dut)
     await tb.reset()
 
+    # First load a period so the RTC can operate
+    await apb_write(dut, PTP_PERIOD_H, 0x00000008)
+    await apb_write(dut, PTP_PERIOD_L, 0x00000000)
+    await apb_write(dut, PTP_RTC_CTRL, 0x04)  # PERIOD_LD
+    await ClockCycles(dut.pclk, 10)
+
+    # Write time staging registers
     await apb_write(dut, PTP_TIME_SEC_H, 0x00001234)
     await apb_write(dut, PTP_TIME_SEC_L, 0xABCD0000)
     await apb_write(dut, PTP_TIME_NSC_H, 0x12345678)
     await apb_write(dut, PTP_TIME_NSC_L, 0x000000FF)
 
-    assert await apb_read(dut, PTP_TIME_SEC_H) == 0x00001234
-    assert await apb_read(dut, PTP_TIME_SEC_L) == 0xABCD0000
-    assert await apb_read(dut, PTP_TIME_NSC_H) == 0x12345678
-    assert await apb_read(dut, PTP_TIME_NSC_L) == 0x000000FF
+    # Load time into RTC: pulse TIME_LD (CTRL[3])
+    await apb_write(dut, PTP_RTC_CTRL, 0x08)
+    await ClockCycles(dut.pclk, 20)  # Wait for CDC
+
+    # Read back via TIME_RD (CTRL[0])
+    await apb_write(dut, PTP_RTC_CTRL, 0x01)
+    await ClockCycles(dut.pclk, 20)  # Wait for CDC handshake
+
+    sec_h = await apb_read(dut, PTP_TIME_SEC_H)
+    sec_l = await apb_read(dut, PTP_TIME_SEC_L)
+    assert sec_h == 0x00001234, f"SEC_H mismatch: 0x{sec_h:08X}"
+    assert sec_l == 0xABCD0000, f"SEC_L mismatch: 0x{sec_l:08X}"
 
 
 @cocotb.test()

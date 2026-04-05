@@ -210,6 +210,18 @@ module tb_top;
     // Hardware capture (TideLink — tied off)
     .hw_capture      (hw_capture),
 
+    // Hardware capture outputs (not used in this test)
+    .hw_cap_seconds_o        (),
+    .hw_cap_nanoseconds_o    (),
+    .hw_cap_sub_nanoseconds_o(),
+
+    // Hardware servo adjustment (tied off — not used in this test)
+    .hw_set_time_i       (1'b0),
+    .hw_set_seconds_i    (48'b0),
+    .hw_set_nanoseconds_i(30'b0),
+    .hw_adj_valid_i      (1'b0),
+    .hw_adj_ns_incr_frac_i(32'b0),
+
     // Ethernet PTP capture ← from ethmac subsystem
     .eth_rx_capture  (rx_ptp_event),
     .eth_tx_capture  (tx_ptp_event),

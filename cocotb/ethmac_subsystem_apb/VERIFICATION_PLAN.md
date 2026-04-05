@@ -154,6 +154,38 @@ Verify system-level reset handling.
 
 ---
 
+## CP10 — PTP Event Detection
+
+Verify the `ptp_event_detector` module detects PTP frames (EtherType 0x88F7)
+on MII interfaces and generates synchronised event pulses.
+
+| ID     | Description                                    | Method |
+|--------|------------------------------------------------|--------|
+| CP10.1 | PTP frame (EtherType 0x88F7) generates event   | Cocotb (ptp_event_detector) |
+| CP10.2 | Non-PTP frame does not generate event           | Cocotb (ptp_event_detector) |
+| CP10.3 | Event pulse is exactly one cycle wide           | Cocotb (ptp_event_detector) |
+| CP10.4 | Back-to-back PTP frames each generate events   | Cocotb (ptp_event_detector) |
+| CP10.5 | Mixed PTP/non-PTP traffic: only PTP triggers   | Cocotb (ptp_event_detector) |
+| CP10.6 | Runt frame (truncated before EtherType) no event | Cocotb (ptp_event_detector) |
+| CP10.7 | Toggle-CDC synchronises events to pclk domain  | Cocotb (ethmac_phc_sync) |
+
+---
+
+## CP11 — PHC Synchronisation from Ethernet PTP
+
+Verify end-to-end path: PTP frame on MII -> `ptp_event_detector` -> CDC ->
+`rx_ptp_event` / `tx_ptp_event` -> PHC ETH capture registers -> software
+PTP offset correction.
+
+| ID     | Description                                    | Method |
+|--------|------------------------------------------------|--------|
+| CP11.1 | PTP RX frame triggers PHC ETH_RX_CAP capture  | Cocotb (ethmac_phc_sync) |
+| CP11.2 | Non-PTP frame does not update ETH_RX_CAP       | Cocotb (ethmac_phc_sync) |
+| CP11.3 | TideLink and Ethernet captures are independent | Cocotb (ethmac_phc_sync) |
+| CP11.4 | Desync + PTP offset correction recovers time   | Cocotb (ethmac_phc_sync) |
+
+---
+
 ## CP9 — X-Propagation (xprop)
 
 Verify no X-values propagate to outputs under valid stimulus.
@@ -175,6 +207,8 @@ Verify no X-values propagate to outputs under valid stimulus.
 |--------|-----------|-----------------|
 | `test_ethmac_subsystem_apb` | 21 | CP1-CP5, CP8-CP9 |
 | `test_ptp_cosim`            | 8  | CP7.1-CP7.8 |
+| `test_ptp_event_detector`   | 8  | CP10.1-CP10.6 |
+| `test_ethmac_phc_sync`      | 4  | CP10.7, CP11.1-CP11.4 |
 
 ### UVM Tests
 
