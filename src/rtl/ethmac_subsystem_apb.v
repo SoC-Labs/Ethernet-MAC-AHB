@@ -88,7 +88,30 @@ module ethmac_subsystem_apb (
 
   // PTP Event Outputs (synchronized to pclk)
   output wire        rx_ptp_event,
-  output wire        tx_ptp_event
+  output wire        tx_ptp_event,
+
+  // HA1588 Hardware Servo — Control Inputs (from PHC registers)
+  input  wire        ha1588_servo_en,
+  input  wire [29:0] ha1588_sync_interval,
+
+  // HA1588 Hardware Servo — PHC Capture Readback (from PHC hw_cap outputs)
+  input  wire [47:0] phc_seconds,
+  input  wire [29:0] phc_nanoseconds,
+  input  wire [47:0] phc_hw_cap_seconds,
+  input  wire [29:0] phc_hw_cap_nanoseconds,
+  input  wire [31:0] phc_hw_cap_sub_nanoseconds,
+
+  // HA1588 Hardware Servo — Outputs (to PHC servo source 1)
+  output wire        ha1588_hw_capture,
+  output wire        ha1588_hw_set_time,
+  output wire [47:0] ha1588_hw_set_seconds,
+  output wire [29:0] ha1588_hw_set_nanoseconds,
+  output wire        ha1588_hw_adj_valid,
+  output wire [31:0] ha1588_hw_adj_ns_incr_frac,
+
+  // HA1588 Hardware Servo — Status Outputs
+  output wire        ha1588_servo_locked,
+  output wire        ha1588_servo_phase_step_active
 );
 
   // =================================================================
@@ -487,5 +510,49 @@ module ethmac_subsystem_apb (
   end
 
   assign tx_ptp_event = tx_toggle_sync[2] ^ tx_toggle_sync[1];
+
+  // =================================================================
+  // HA1588 Hardware Servo
+  // =================================================================
+  // Periodically compares the HA1588 software-corrected RTC time to
+  // the PHC timestamp and generates servo corrections (phase step or
+  // frequency adjustment) to discipline the PHC.
+
+  ha1588_servo #(
+    .SYS_DATA_W (32)
+  ) u_ha1588_servo (
+    .clk                    (pclk),
+    .resetn                 (presetn),
+
+    // Control (from PHC SERVO_CTRL register via top-level ports)
+    .enable                 (ha1588_servo_en),
+    .sync_interval          (ha1588_sync_interval),
+
+    // HA1588 RTC inputs (rtc_clk domain)
+    .rtc_clk                (rtc_clk),
+    .rtc_time_ptp_ns        (rtc_time_ptp_ns),
+    .rtc_time_ptp_sec       (rtc_time_ptp_sec),
+
+    // PHC current time (for interval timer, from PHC via top-level ports)
+    .phc_seconds            (phc_seconds),
+    .phc_nanoseconds        (phc_nanoseconds),
+
+    // PHC hw_capture interface (capture readback from PHC via top-level ports)
+    .hw_capture             (ha1588_hw_capture),
+    .hw_cap_seconds         (phc_hw_cap_seconds),
+    .hw_cap_nanoseconds     (phc_hw_cap_nanoseconds),
+    .hw_cap_sub_nanoseconds (phc_hw_cap_sub_nanoseconds),
+
+    // Servo outputs (to PHC servo source 1)
+    .hw_set_time            (ha1588_hw_set_time),
+    .hw_set_seconds         (ha1588_hw_set_seconds),
+    .hw_set_nanoseconds     (ha1588_hw_set_nanoseconds),
+    .hw_adj_valid           (ha1588_hw_adj_valid),
+    .hw_adj_ns_incr_frac    (ha1588_hw_adj_ns_incr_frac),
+
+    // Status
+    .locked                 (ha1588_servo_locked),
+    .phase_step_active      (ha1588_servo_phase_step_active)
+  );
 
 endmodule
