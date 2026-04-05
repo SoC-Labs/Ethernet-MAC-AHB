@@ -21,9 +21,9 @@ variables:
   HA1588_IP_DIR: /research/AAA/ip_library/OpenCores-HA1588
   # ARM CMSDK (APB mux, SRAM models)
   CMSDK_DIR: /research/AAA/ip_library/BP210/BP210-BU-00000-r1p1-00rel0
-  # PTP Hardware Clock (cloned alongside for integration tests)
+  # PTP Hardware Clock (cloned inside workspace for integration tests)
   PHC_REPO_URL: https://git.soton.ac.uk/soclabs/ptp-hardware-clock-ahb.git
-  PHC_HOME: "${WORK_DIR}/../ptp-hardware-clock-ahb"
+  PHC_HOME: "${WORK_DIR}/deps/ptp-hardware-clock-ahb"
   # Synopsys EDA tool paths
   VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
   VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
@@ -42,14 +42,16 @@ variables:
 clone:
   stage: setup
   script:
+    # Remove stale workspaces from previous pipelines (older than 24h)
+    - find "${CI_BUILDS_DIR}/${CI_PROJECT_NAME}" -maxdepth 1 -mindepth 1 -type d -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
     - rm -rf "$WORK_DIR"
     - mkdir -p "$WORK_DIR"
     - git clone --branch "$CI_COMMIT_REF_NAME" --single-branch "$CI_REPOSITORY_URL" "$WORK_DIR"
     - cd "$WORK_DIR" && git checkout "$CI_COMMIT_SHA"
     - cd "$WORK_DIR" && git submodule update --init --recursive
     - echo "Cloned $CI_COMMIT_SHORT_SHA into $WORK_DIR"
-    # Clone PHC repo alongside for integration tests
-    - rm -rf "$PHC_HOME"
+    # Clone PHC repo inside workspace for integration tests
+    - mkdir -p "$WORK_DIR/deps"
     - git clone --depth 1 "$PHC_REPO_URL" "$PHC_HOME"
     - echo "Cloned ptp-hardware-clock-ahb into $PHC_HOME"
 
@@ -786,6 +788,5 @@ cleanup:
   stage: cleanup
   when: always
   script:
-    - rm -rf "$WORK_DIR"
-    - rm -rf "$PHC_HOME"
-    - echo "Cleaned up $WORK_DIR and $PHC_HOME"
+    - rm -rf "$WORK_DIR" || true
+    - echo "Cleaned up $WORK_DIR (including deps/ptp-hardware-clock-ahb)"
