@@ -32,7 +32,8 @@ SIM_ARGS     += -cm line+cond+tgl+fsm+branch
 # Testbench wrapper
 VERILOG_SOURCES  = $(PWD)/tb_ethmac_subsystem_apb.v
 
-# DUT: subsystem wrapper
+# DUT: subsystem wrapper + PTP event detector
+VERILOG_SOURCES += $(PWD)/../../src/rtl/ptp_event_detector.v
 VERILOG_SOURCES += $(PWD)/../../src/rtl/ethmac_subsystem_apb.v
 
 # CMSDK APB slave mux

@@ -40,4 +40,5 @@ ${HA1588_IP_DIR}/rtl/bus/wishbone/wb_slv_wrapper.v
 ${CMSDK_DIR}/logical/cmsdk_apb_slave_mux/verilog/cmsdk_apb_slave_mux.v
 ${ETHMAC_AHB_HOME}/amba_wb_bridges/src/rtl/apb_to_wb.v
 ${ETHMAC_AHB_HOME}/amba_wb_bridges/src/rtl/wb_to_ahb3lite.v
+${ETHMAC_AHB_HOME}/src/rtl/ptp_event_detector.v
 ${ETHMAC_AHB_HOME}/src/rtl/ethmac_subsystem_apb.v

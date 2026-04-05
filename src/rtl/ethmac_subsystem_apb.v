@@ -84,7 +84,11 @@ module ethmac_subsystem_apb (
   output wire        md_padoe_o,
 
   // Interrupt
-  output wire        int_o
+  output wire        int_o,
+
+  // PTP Event Outputs (synchronized to pclk)
+  output wire        rx_ptp_event,
+  output wire        tx_ptp_event
 );
 
   // =================================================================
@@ -412,5 +416,76 @@ module ethmac_subsystem_apb (
     .tx_gmii_data   ({4'b0, mtxd_pad_o}),
     .tx_giga_mode   (1'b0)
   );
+
+  // =================================================================
+  // PTP Event Detectors — lightweight PTP frame detection on MII
+  // =================================================================
+  // Monitors the same MII signals already tapped for HA1588 and generates
+  // single-cycle pulses when PTP frames (EtherType 0x88F7) are detected.
+  // These events are used to trigger PHC timestamp capture externally.
+
+  wire rx_ptp_event_raw;  // In mrx_clk domain
+  wire tx_ptp_event_raw;  // In mtx_clk domain
+
+  ptp_event_detector u_rx_ptp_det (
+    .clk       (mrx_clk_pad_i),
+    .resetn    (presetn),
+    .mii_dv    (mrxdv_pad_i),
+    .mii_data  (mrxd_pad_i),
+    .ptp_event (rx_ptp_event_raw)
+  );
+
+  ptp_event_detector u_tx_ptp_det (
+    .clk       (mtx_clk_pad_i),
+    .resetn    (presetn),
+    .mii_dv    (mtxen_pad_o),
+    .mii_data  (mtxd_pad_o),
+    .ptp_event (tx_ptp_event_raw)
+  );
+
+  // -----------------------------------------------------------------
+  // CDC: Toggle-based synchronisation (MII clock → pclk)
+  // -----------------------------------------------------------------
+  // A narrow single-cycle pulse in the 25 MHz MII domain could be missed
+  // by a simple 2-FF synchronizer if pclk is faster. Toggle-CDC converts
+  // the pulse to a level change, synchronizes the level, then edge-detects.
+
+  // RX path (mrx_clk → pclk)
+  reg rx_toggle_src;
+  always @(posedge mrx_clk_pad_i or negedge presetn) begin
+    if (!presetn)
+      rx_toggle_src <= 1'b0;
+    else if (rx_ptp_event_raw)
+      rx_toggle_src <= ~rx_toggle_src;
+  end
+
+  reg [2:0] rx_toggle_sync;
+  always @(posedge pclk or negedge presetn) begin
+    if (!presetn)
+      rx_toggle_sync <= 3'b0;
+    else
+      rx_toggle_sync <= {rx_toggle_sync[1:0], rx_toggle_src};
+  end
+
+  assign rx_ptp_event = rx_toggle_sync[2] ^ rx_toggle_sync[1];
+
+  // TX path (mtx_clk → pclk)
+  reg tx_toggle_src;
+  always @(posedge mtx_clk_pad_i or negedge presetn) begin
+    if (!presetn)
+      tx_toggle_src <= 1'b0;
+    else if (tx_ptp_event_raw)
+      tx_toggle_src <= ~tx_toggle_src;
+  end
+
+  reg [2:0] tx_toggle_sync;
+  always @(posedge pclk or negedge presetn) begin
+    if (!presetn)
+      tx_toggle_sync <= 3'b0;
+    else
+      tx_toggle_sync <= {tx_toggle_sync[1:0], tx_toggle_src};
+  end
+
+  assign tx_ptp_event = tx_toggle_sync[2] ^ tx_toggle_sync[1];
 
 endmodule

@@ -151,8 +151,15 @@ module tb_ethmac_subsystem_apb;
     .md_padoe_o       (md_padoe_o),
 
     // Interrupt
-    .int_o            (int_o)
+    .int_o            (int_o),
+
+    // PTP Event Outputs
+    .rx_ptp_event     (rx_ptp_event),
+    .tx_ptp_event     (tx_ptp_event)
   );
+
+  wire rx_ptp_event;
+  wire tx_ptp_event;
 
   // -------------------------------------------------------
   // Waveform dump

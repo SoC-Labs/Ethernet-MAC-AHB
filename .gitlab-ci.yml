@@ -21,6 +21,9 @@ variables:
   HA1588_IP_DIR: /research/AAA/ip_library/OpenCores-HA1588
   # ARM CMSDK (APB mux, SRAM models)
   CMSDK_DIR: /research/AAA/ip_library/BP210/BP210-BU-00000-r1p1-00rel0
+  # PTP Hardware Clock (cloned alongside for integration tests)
+  PHC_REPO_URL: https://git.soton.ac.uk/soclabs/ptp-hardware-clock-ahb.git
+  PHC_HOME: "${WORK_DIR}/../ptp-hardware-clock-ahb"
   # Synopsys EDA tool paths
   VCS_HOME: /eda/synopsys/2022-23/RHELx86/VCS_2022.06-SP2
   VERDI_HOME: /eda/synopsys/2022-23/RHELx86/VERDI_2022.06-SP2
@@ -43,6 +46,10 @@ clone:
     - cd "$WORK_DIR" && git checkout "$CI_COMMIT_SHA"
     - cd "$WORK_DIR" && git submodule update --init --recursive
     - echo "Cloned $CI_COMMIT_SHORT_SHA into $WORK_DIR"
+    # Clone PHC repo alongside for integration tests
+    - rm -rf "$PHC_HOME"
+    - git clone --depth 1 "$PHC_REPO_URL" "$PHC_HOME"
+    - echo "Cloned ptp-hardware-clock-ahb into $PHC_HOME"
 
 # ── Preflight — validate all tool/IP paths before running jobs ────────
 
@@ -95,6 +102,7 @@ preflight:
       check_dir "ETHMAC_IP_DIR"  "$ETHMAC_IP_DIR"
       check_dir "HA1588_IP_DIR"  "$HA1588_IP_DIR"
       check_dir "CMSDK_DIR"      "$CMSDK_DIR"
+      check_dir "PHC_HOME"       "$PHC_HOME"
 
       echo ""
       echo "── Workspace ───────────────────────────"
@@ -366,6 +374,50 @@ ha1588_apb:
     paths:
       - cocotb/ha1588_apb/results.xml
       - cocotb/ha1588_apb/coverage_report/
+    expire_in: 30 days
+
+ptp_event_detector:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ptp_event_detector" clean
+    - make -C "$WORK_DIR/cocotb/ptp_event_detector"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ptp_event_detector/results.xml
+    paths:
+      - cocotb/ptp_event_detector/results.xml
+    expire_in: 30 days
+
+ethmac_phc_sync:
+  stage: test
+  needs: [clone, preflight]
+  tags:
+    - vcs
+  before_script:
+    - export PATH="$VCS_HOME/bin:$VERDI_HOME/bin:$PATH"
+    - export ETHMAC_AHB_HOME="$WORK_DIR"
+    - export AHB_BRIDGES_HOME="$WORK_DIR/amba_wb_bridges"
+    - export ETHMAC_IP_DIR="$ETHMAC_IP_DIR"
+    - export HA1588_IP_DIR="$HA1588_IP_DIR"
+    - export CMSDK_DIR="$CMSDK_DIR"
+    - export PHC_HOME="$PHC_HOME"
+    - pip3 install --user -r "$WORK_DIR/cocotb/requirements.txt"
+  script:
+    - make -C "$WORK_DIR/cocotb/ethmac_phc_sync" clean
+    - make -C "$WORK_DIR/cocotb/ethmac_phc_sync"
+  artifacts:
+    when: always
+    reports:
+      junit: cocotb/ethmac_phc_sync/results.xml
+    paths:
+      - cocotb/ethmac_phc_sync/results.xml
     expire_in: 30 days
 
 # ── UVM Verification ─────────────────────────────────────────────────────
@@ -682,4 +734,5 @@ cleanup:
   when: always
   script:
     - rm -rf "$WORK_DIR"
-    - echo "Cleaned up $WORK_DIR"
+    - rm -rf "$PHC_HOME"
+    - echo "Cleaned up $WORK_DIR and $PHC_HOME"

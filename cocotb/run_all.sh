@@ -12,6 +12,8 @@ SUITES=(
     "ha1588_ahb"
     "ha1588_apb"
     "ethmac_subsystem_apb"
+    "ptp_event_detector"
+    "ethmac_phc_sync"
 )
 
 # PTP co-sim uses the same testbench as ethmac_subsystem_apb
