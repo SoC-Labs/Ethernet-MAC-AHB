@@ -17,3 +17,4 @@ asserts.txt
 uvm/*/csrc
 vc_hdrs.h
 *.rpt
+*.o

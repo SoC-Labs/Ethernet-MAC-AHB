@@ -1,0 +1,370 @@
+// -----------------------------------------------------------------------------
+// SoCLabs Ethernet MAC Register Description (SystemRDL 2.0)
+//
+// Describes the register map for the OpenCores ethmac IP core (eth_top).
+// Derived from eth_defines.v and eth_registers.v (OpenCores rel_10).
+//
+// This RDL describes the registers as seen through the AHB slave port
+// of ethmac_ahb.v (via the ahb3lite_to_wb bridge).
+//
+// Buffer descriptors (0x400-0x7FF) are NOT included here — they are
+// accessed via the same address space but are SRAM-backed, not registers.
+//
+// A joint work commissioned on behalf of SoC Labs, under Arm Academic
+// Access license.
+//
+// Contributors
+//   David Mapstone (d.a.mapstone@soton.ac.uk)
+//
+// Copyright 2026, SoC Labs (www.soclabs.org)
+// -----------------------------------------------------------------------------
+
+addrmap ethmac_regs {
+    name = "Ethernet MAC Register Map";
+    desc = "OpenCores ethmac register map. All registers are 32-bit
+            word-aligned, accessed via AHB-Lite slave (bridged to
+            WISHBONE internally by ahb3lite_to_wb).";
+
+    default hw = r;
+    default sw = rw;
+    default reset = 0;
+
+    // =========================================================================
+    // MODER — Mode Register (0x00)
+    // =========================================================================
+
+    reg moder_reg {
+        name = "MODER";
+        desc = "MAC mode control register.";
+
+        field { sw = rw; hw = r; } RXEN[1] = 0;
+        RXEN->desc = "Receive enable. Gated by TX_BD_NUM < 0x80.";
+
+        field { sw = rw; hw = r; } TXEN[1] = 0;
+        TXEN->desc = "Transmit enable. Gated by TX_BD_NUM > 0.";
+
+        field { sw = rw; hw = r; } NOPRE[1] = 0;
+        NOPRE->desc = "No preamble. When set, preamble is not sent.";
+
+        field { sw = rw; hw = r; } BRO[1] = 0;
+        BRO->desc = "Reject broadcast frames. When set, broadcast frames are rejected.";
+
+        field { sw = rw; hw = r; } IAM[1] = 0;
+        IAM->desc = "Individual address mode (use hash table for multicast filtering).";
+
+        field { sw = rw; hw = r; } PRO[1] = 0;
+        PRO->desc = "Promiscuous mode. Receive all frames regardless of address.";
+
+        field { sw = rw; hw = r; } IFG[1] = 0;
+        IFG->desc = "Inter-frame gap selection. Minimum IFG for incoming frames.";
+
+        field { sw = rw; hw = r; } LOOPBK[1] = 0;
+        LOOPBK->desc = "Loopback mode. TX data looped back to RX.";
+
+        field { sw = rw; hw = r; } NOBCKOF[1] = 0;
+        NOBCKOF->desc = "No backoff. Retransmit immediately on collision.";
+
+        field { sw = rw; hw = r; } EXDFREN[1] = 0;
+        EXDFREN->desc = "Excess defer enable.";
+
+        field { sw = rw; hw = r; } FULLD[1] = 0;
+        FULLD->desc = "Full-duplex mode.";
+
+        field { sw = r; hw = na; } RSVD_11[1] = 0;
+
+        field { sw = rw; hw = r; } DLYCRCEN[1] = 0;
+        DLYCRCEN->desc = "Delayed CRC enable.";
+
+        field { sw = rw; hw = r; } CRCEN[1] = 1;
+        CRCEN->desc = "CRC enable. Append CRC to transmitted frames.";
+
+        field { sw = rw; hw = r; } HUGEN[1] = 1;
+        HUGEN->desc = "Huge frame enable. Allow frames larger than MAXFL.";
+
+        field { sw = rw; hw = r; } PAD[1] = 1;
+        PAD->desc = "Pad short frames to minimum length.";
+
+        field { sw = rw; hw = r; } RECSMALL[1] = 1;
+        RECSMALL->desc = "Receive small frames. Accept frames smaller than MINFL.";
+    };
+    moder_reg MODER @ 0x00;
+
+    // =========================================================================
+    // INT_SOURCE — Interrupt Source (0x04)
+    // =========================================================================
+
+    reg int_source_reg {
+        name = "INT_SOURCE";
+        desc = "Interrupt source flags. Write 1 to clear individual bits.";
+
+        field { sw = rw; hw = w; } TXB[1] = 0;
+        TXB->desc = "TX buffer complete. Frame transmitted successfully.";
+
+        field { sw = rw; hw = w; } TXE[1] = 0;
+        TXE->desc = "TX error. Transmission error occurred.";
+
+        field { sw = rw; hw = w; } RXB[1] = 0;
+        RXB->desc = "RX buffer. Frame received and stored in buffer.";
+
+        field { sw = rw; hw = w; } RXE[1] = 0;
+        RXE->desc = "RX error. Reception error occurred.";
+
+        field { sw = rw; hw = w; } BUSY[1] = 0;
+        BUSY->desc = "Busy. Frame received but no buffer available.";
+
+        field { sw = rw; hw = w; } TXC[1] = 0;
+        TXC->desc = "TX control frame. Control frame sent.";
+
+        field { sw = rw; hw = w; } RXC[1] = 0;
+        RXC->desc = "RX control frame. Control frame received.";
+    };
+    int_source_reg INT_SOURCE @ 0x04;
+
+    // =========================================================================
+    // INT_MASK — Interrupt Mask (0x08)
+    // =========================================================================
+
+    reg int_mask_reg {
+        name = "INT_MASK";
+        desc = "Interrupt mask. Set bits to enable corresponding interrupts.";
+
+        field { sw = rw; hw = r; } TXB_M[1] = 0;
+        field { sw = rw; hw = r; } TXE_M[1] = 0;
+        field { sw = rw; hw = r; } RXB_M[1] = 0;
+        field { sw = rw; hw = r; } RXE_M[1] = 0;
+        field { sw = rw; hw = r; } BUSY_M[1] = 0;
+        field { sw = rw; hw = r; } TXC_M[1] = 0;
+        field { sw = rw; hw = r; } RXC_M[1] = 0;
+    };
+    int_mask_reg INT_MASK @ 0x08;
+
+    // =========================================================================
+    // Inter-Packet Gap Registers
+    // =========================================================================
+
+    reg ipg_reg {
+        name = "IPG";
+        desc = "Inter-packet gap timing register.";
+        field { sw = rw; hw = r; } GAP[7] = 0;
+    };
+
+    ipg_reg IPGT @ 0x0C;
+    IPGT->name = "IPGT";
+    IPGT->desc = "Back-to-back inter-packet gap. Default: 0x12 (full-duplex).";
+
+    ipg_reg IPGR1 @ 0x10;
+    IPGR1->name = "IPGR1";
+    IPGR1->desc = "Non-back-to-back inter-packet gap part 1. Default: 0x0C.";
+
+    ipg_reg IPGR2 @ 0x14;
+    IPGR2->name = "IPGR2";
+    IPGR2->desc = "Non-back-to-back inter-packet gap part 2. Default: 0x12.";
+
+    // =========================================================================
+    // PACKETLEN — Packet Length (0x18)
+    // =========================================================================
+
+    reg packetlen_reg {
+        name = "PACKETLEN";
+        desc = "Minimum and maximum packet length. Default: 0x00400600.";
+
+        field { sw = rw; hw = r; } MINFL[16] = 16'h0600;
+        MINFL->desc = "Minimum frame length in bytes.";
+
+        field { sw = rw; hw = r; } MAXFL[16] = 16'h0040;
+        MAXFL->desc = "Maximum frame length in bytes.";
+    };
+    packetlen_reg PACKETLEN @ 0x18;
+
+    // =========================================================================
+    // COLLCONF — Collision Configuration (0x1C)
+    // =========================================================================
+
+    reg collconf_reg {
+        name = "COLLCONF";
+        desc = "Collision configuration for half-duplex mode.";
+
+        field { sw = rw; hw = r; } COLLVALID[6] = 6'h3F;
+        COLLVALID->desc = "Collision valid window (bit times).";
+
+        field { sw = r; hw = na; } RSVD_6_15[10] = 0;
+
+        field { sw = rw; hw = r; } MAXRET[4] = 4'hF;
+        MAXRET->desc = "Maximum retransmission attempts on collision (0-15).";
+    };
+    collconf_reg COLLCONF @ 0x1C;
+
+    // =========================================================================
+    // TX_BD_NUM — TX Buffer Descriptor Number (0x20)
+    // =========================================================================
+
+    reg tx_bd_num_reg {
+        name = "TX_BD_NUM";
+        desc = "Number of TX buffer descriptors. RX count = 0x80 - TX_BD_NUM.
+                Maximum 0x80 (128 total). Default: 0x40 (64 TX, 64 RX).";
+
+        field { sw = rw; hw = r; } TX_BD_NUM[8] = 8'h40;
+    };
+    tx_bd_num_reg TX_BD_NUM @ 0x20;
+
+    // =========================================================================
+    // CTRLMODER — Control Mode Register (0x24)
+    // =========================================================================
+
+    reg ctrlmoder_reg {
+        name = "CTRLMODER";
+        desc = "MAC control mode settings.";
+
+        field { sw = rw; hw = r; } PASSALL[1] = 0;
+        PASSALL->desc = "Pass all frames (disable address filtering).";
+
+        field { sw = rw; hw = r; } RXFLOW[1] = 0;
+        RXFLOW->desc = "Enable RX flow control (honour received PAUSE frames).";
+
+        field { sw = rw; hw = r; } TXFLOW[1] = 0;
+        TXFLOW->desc = "Enable TX flow control (generate PAUSE frames).";
+    };
+    ctrlmoder_reg CTRLMODER @ 0x24;
+
+    // =========================================================================
+    // MII Registers (0x28 — 0x3C)
+    // =========================================================================
+
+    reg miimoder_reg {
+        name = "MIIMODER";
+        desc = "MII mode configuration.";
+
+        field { sw = rw; hw = r; } CLKDIV[8] = 8'h64;
+        CLKDIV->desc = "MII clock divider. MII_CLK = SYS_CLK / (2 * (CLKDIV + 1)).";
+
+        field { sw = rw; hw = r; } MIINOPRE[1] = 0;
+        MIINOPRE->desc = "Suppress MII preamble.";
+
+        field { sw = rw; hw = r; } MIIRST[1] = 0;
+        MIIRST->desc = "MII PHY soft reset.";
+    };
+    miimoder_reg MIIMODER @ 0x28;
+
+    reg miicommand_reg {
+        name = "MIICOMMAND";
+        desc = "MII command register.";
+
+        field { sw = rw; hw = r; } SCANSTAT[1] = 0;
+        SCANSTAT->desc = "Continuous scan status.";
+
+        field { sw = rw; hw = r; singlepulse; } RSTAT[1] = 0;
+        RSTAT->desc = "Read status (single MII read). Self-clearing.";
+
+        field { sw = rw; hw = r; singlepulse; } WCTRLDATA[1] = 0;
+        WCTRLDATA->desc = "Write control data (single MII write). Self-clearing.";
+    };
+    miicommand_reg MIICOMMAND @ 0x2C;
+
+    reg miiaddress_reg {
+        name = "MIIADDRESS";
+        desc = "MII PHY and register address.";
+
+        field { sw = rw; hw = r; } FIAD[5] = 0;
+        FIAD->desc = "PHY register address (0-31).";
+
+        field { sw = r; hw = na; } RSVD_5_7[3] = 0;
+
+        field { sw = rw; hw = r; } RGAD[5] = 0;
+        RGAD->desc = "PHY device address (0-31).";
+    };
+    miiaddress_reg MIIADDRESS @ 0x30;
+
+    reg miitx_data_reg {
+        name = "MIITX_DATA";
+        desc = "MII transmit data for PHY register writes.";
+
+        field { sw = rw; hw = r; } CTRLDATA[16] = 0;
+    };
+    miitx_data_reg MIITX_DATA @ 0x34;
+
+    reg miirx_data_reg {
+        name = "MIIRX_DATA";
+        desc = "MII receive data from PHY register reads (read-only).";
+
+        field { sw = r; hw = w; } PRSD[16] = 0;
+    };
+    miirx_data_reg MIIRX_DATA @ 0x38;
+
+    reg miistatus_reg {
+        name = "MIISTATUS";
+        desc = "MII status (read-only).";
+
+        field { sw = r; hw = w; } LINKFAIL[1] = 0;
+        LINKFAIL->desc = "Link failure detected by PHY.";
+
+        field { sw = r; hw = w; } BUSY[1] = 0;
+        BUSY->desc = "MII operation in progress.";
+
+        field { sw = r; hw = w; } NVALID[1] = 0;
+        NVALID->desc = "Data not valid (scan in progress or incomplete).";
+    };
+    miistatus_reg MIISTATUS @ 0x3C;
+
+    // =========================================================================
+    // MAC Address Registers (0x40 — 0x44)
+    // =========================================================================
+
+    reg mac_addr0_reg {
+        name = "MAC_ADDR0";
+        desc = "MAC address lower 32 bits (bytes 3:0). LSB-first.
+                Example: for MAC AA:BB:CC:DD:EE:FF, write 0xDDCCBBAA.";
+
+        field { sw = rw; hw = r; } BYTE0_3[32] = 0;
+    };
+    mac_addr0_reg MAC_ADDR0 @ 0x40;
+
+    reg mac_addr1_reg {
+        name = "MAC_ADDR1";
+        desc = "MAC address upper 16 bits (bytes 5:4).
+                Example: for MAC AA:BB:CC:DD:EE:FF, write 0x0000FFEE.";
+
+        field { sw = rw; hw = r; } BYTE4_5[16] = 0;
+    };
+    mac_addr1_reg MAC_ADDR1 @ 0x44;
+
+    // =========================================================================
+    // Hash Filter Registers (0x48 — 0x4C)
+    // =========================================================================
+
+    reg hash_reg {
+        name = "HASH";
+        desc = "Multicast hash filter register.";
+        field { sw = rw; hw = r; } HASH[32] = 0;
+    };
+
+    hash_reg HASH0 @ 0x48;
+    HASH0->desc = "Hash filter bits 31:0.";
+
+    hash_reg HASH1 @ 0x4C;
+    HASH1->desc = "Hash filter bits 63:32.";
+
+    // =========================================================================
+    // TX/RX Control Registers (0x50 — 0x54)
+    // =========================================================================
+
+    reg tx_ctrl_reg {
+        name = "TX_CTRL";
+        desc = "TX flow control (PAUSE frame generation).";
+
+        field { sw = rw; hw = r; } PAUSETV[16] = 0;
+        PAUSETV->desc = "Pause time value for transmitted PAUSE frames.";
+
+        field { sw = rw; hw = r; } PAUSERQ[1] = 0;
+        PAUSERQ->desc = "Pause request. Write 1 to initiate a PAUSE frame.";
+    };
+    tx_ctrl_reg TX_CTRL @ 0x50;
+
+    reg rx_ctrl_reg {
+        name = "RX_CTRL";
+        desc = "RX flow control status.";
+
+        field { sw = r; hw = w; } RXCTRL[16] = 0;
+        RXCTRL->desc = "Received pause time value from incoming PAUSE frames.";
+    };
+    rx_ctrl_reg RX_CTRL @ 0x54;
+};
