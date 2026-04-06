@@ -20,9 +20,9 @@ export SWL    := $(ETHMAC_AHB_HOME)/cdc/waiver.swl
 export SG_TOP := $(MODULE)
 PRJ           := $(ETHMAC_AHB_HOME)/cdc/ethmac.prj
 
-# SpyGlass output directory
-SG_WORK := $(MODULE)_spyglass
-RPTDIR  := $(SG_WORK)/cdc_verify/spyglass_reports
+# SpyGlass output directory (project name from .prj filename)
+SG_WORK := ethmac
+RPTDIR  := $(SG_WORK)/$(MODULE)/cdc/cdc_verify/spyglass_reports
 
 # Report files
 RPT_SUMMARY := $(MODULE)_cdc_summary.rpt
@@ -81,7 +81,7 @@ cdc-report:
 
 # ── Clean ────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf *_spyglass *_cdc_summary.rpt \
+	rm -rf ethmac *_cdc_summary.rpt \
 	       spyglass_output spyglass.log sg_shell.log
 
 # ── Help ─────────────────────────────────────────────────────────────────────

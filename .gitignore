@@ -18,3 +18,4 @@ uvm/*/csrc
 vc_hdrs.h
 *.rpt
 *.o
+cdc/ethmac/

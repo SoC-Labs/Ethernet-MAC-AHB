@@ -76,9 +76,16 @@ ETHMAC_SW    := $(PWD)/../../src/sw
 CC_HOST      := gcc
 CFLAGS_HOST  := -shared -fPIC -DHAL_TEST_MODE -O0 -g -Wall -Wextra
 
-libethmac_driver.so: $(ETHMAC_SW)/ethmac.c ethmac_test_wrappers.c \
-                     $(ETHMAC_SW)/ethmac.h $(ETHMAC_SW)/ethmac_regs.generated.h \
-                     $(ETHMAC_SW)/hal_io.h
+# Default target: build C driver then run cocotb simulation
+all: libethmac_driver.so sim
+
+# Ensure generated headers exist (from RDL sources) before compiling
+.PHONY: generate-headers
+generate-headers:
+	$(MAKE) -C $(ETHMAC_SW) generate
+
+libethmac_driver.so: generate-headers $(ETHMAC_SW)/ethmac.c ethmac_test_wrappers.c \
+                     $(ETHMAC_SW)/ethmac.h $(ETHMAC_SW)/hal_io.h
 	$(CC_HOST) $(CFLAGS_HOST) -I$(ETHMAC_SW) -include $(ETHMAC_SW)/hal_io.h \
 	    $(ETHMAC_SW)/ethmac.c ethmac_test_wrappers.c -o $@
 
