@@ -26,13 +26,13 @@ COMPILE_ARGS += -cm line+cond+tgl+fsm+branch
 SIM_ARGS     += -cm line+cond+tgl+fsm+branch
 
 # Source files: testbench wrapper
-VERILOG_SOURCES  = $(PWD)/tb_ha1588_ahb.v
+VERILOG_SOURCES  = $(CURDIR)/tb_ha1588_ahb.v
 
 # Wrapper RTL
-VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_ahb.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_ahb.v
 
 # Bridge IP (from submodule)
-VERILOG_SOURCES += $(PWD)/../../amba_wb_bridges/src/rtl/ahb3lite_to_wb.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/ahb3lite_to_wb.v
 
 # WB slave wrapper (from HA1588 IP)
 VERILOG_SOURCES += $(HA1588_RTL)/bus/wishbone/wb_slv_wrapper.v
@@ -45,7 +45,7 @@ VERILOG_SOURCES += $(HA1588_RTL)/tsu/tsu.v
 VERILOG_SOURCES += $(HA1588_RTL)/tsu/ptp_parser.v
 
 # Generic ptp_queue replacement (no vendor FIFO dependency)
-VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_patches/ptp_queue.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_patches/ptp_queue.v
 
 TOPLEVEL = tb_ha1588_ahb
 MODULE   = test_ha1588_ahb

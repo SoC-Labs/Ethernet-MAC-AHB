@@ -10,7 +10,7 @@ SIM ?= vcs
 
 ETHMAC_IP_DIR  ?= /research/AAA/ip_library/OpenCores-EthMAC
 ETHMAC_RTL      = $(ETHMAC_IP_DIR)/rtl/verilog
-ETHMAC_PATCHES  = $(PWD)/../../src/rtl/ethmac_patches
+ETHMAC_PATCHES  = $(CURDIR)/../../src/rtl/ethmac_patches
 
 # Include path for `include directives within eth_top
 COMPILE_ARGS += +incdir+$(ETHMAC_RTL)
@@ -27,14 +27,14 @@ COMPILE_ARGS += +define+ETH_WISHBONE_B3
 #   COMPILE_ARGS += +define+ETH_FIFO_XILINX          # Xilinx distributed RAM for FIFOs
 
 # Source files: testbench wrapper
-VERILOG_SOURCES  = $(PWD)/tb_ethmac_ahb.v
+VERILOG_SOURCES  = $(CURDIR)/tb_ethmac_ahb.v
 
 # Wrapper RTL
-VERILOG_SOURCES += $(PWD)/../../src/rtl/ethmac_ahb.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ethmac_ahb.v
 
 # Bridge IPs (from submodule)
-VERILOG_SOURCES += $(PWD)/../../amba_wb_bridges/src/rtl/ahb3lite_to_wb.v
-VERILOG_SOURCES += $(PWD)/../../amba_wb_bridges/src/rtl/wb_to_ahb3lite.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/ahb3lite_to_wb.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/wb_to_ahb3lite.v
 
 # OpenCores Ethernet MAC IP — unmodified files from external repo
 VERILOG_SOURCES += $(ETHMAC_RTL)/eth_top.v
@@ -66,13 +66,13 @@ VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_spram_256x32.v
 VERILOG_SOURCES += $(ETHMAC_PATCHES)/eth_wishbone.v
 
 # SRAM wrapper — generic (reg-based) for simulation
-VERILOG_SOURCES += $(PWD)/../../src/rtl/generic/ethmac_sram.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/generic/ethmac_sram.v
 
 TOPLEVEL = tb_ethmac_ahb
 MODULE   = test_ethmac_ahb
 
 # ── C Driver Shared Library (for driver-in-the-loop testing) ────────────
-ETHMAC_SW    := $(PWD)/../../src/sw
+ETHMAC_SW    := $(CURDIR)/../../src/sw
 CC_HOST      := gcc
 CFLAGS_HOST  := -shared -fPIC -DHAL_TEST_MODE -O0 -g -Wall -Wextra
 

@@ -1,8 +1,8 @@
 SIM             = vcs
 TOPLEVEL_LANG   = verilog
 
-VERILOG_SOURCES  = $(PWD)/tb_ha1588_servo.sv
-VERILOG_SOURCES += $(PWD)/../../src/rtl/ha1588_servo.sv
+VERILOG_SOURCES  = $(CURDIR)/tb_ha1588_servo.sv
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_servo.sv
 
 TOPLEVEL = tb_ha1588_servo
 MODULE   = test_ha1588_servo
