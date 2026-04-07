@@ -1,0 +1,53 @@
+#-----------------------------------------------------------------------------
+# HA1588 IEEE 1588 PTP Accelerator AHB Module (standalone)
+# A joint work commissioned on behalf of SoC Labs, under Arm Academic Access license.
+#
+# Contributors
+#
+# David Mapstone (d.a.mapstone@soton.ac.uk)
+#
+# Copyright 2026, SoC Labs (www.soclabs.org)
+#-----------------------------------------------------------------------------
+# Derived from RTL: ethernet-mac-ahb/src/rtl/ha1588_ahb.v
+#
+# OpenCores HA1588 PTP timestamping accelerator with AHB slave interface.
+# Provides hardware IEEE 1588 Precision Time Protocol timestamping with
+# nanosecond-resolution RTC and one-pulse-per-second output.
+#
+# Use this module when only PTP timestamping is needed without the MAC.
+# For combined MAC + PTP, use ethmac_subsystem_ahb instead.
+
+module:
+  name: ha1588_ahb
+  gen: False
+  desc: >
+    OpenCores HA1588 IEEE 1588 PTP timestamping accelerator with AHB-Lite
+    slave interface. Provides hardware timestamping of Ethernet frames for
+    Precision Time Protocol, a nanosecond-resolution real-time clock (RTC),
+    and a one-pulse-per-second (1PPS) output. Requires GMII/MII monitoring
+    signals from an associated Ethernet MAC for frame timestamping.
+
+  params:
+    SYS_ADDR_W: { type: int, default: 32, desc: "System address width" }
+    SYS_DATA_W: { type: int, default: 32, desc: "System data width" }
+
+  interfaces:
+    # Clock and Reset
+    - { name: HCLK,    type: wire, direction: in, params: { WIDTH: 1 }, desc: "AHB clock" }
+    - { name: HRESETn, type: wire, direction: in, params: { WIDTH: 1 }, desc: "AHB reset (active low)" }
+
+    # AHB slave port (PTP register access)
+    - { name: ahb_slave, type: ahb, direction: target, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W }, desc: "AHB slave port — HA1588 PTP registers" }
+
+    # RTC Clock
+    - { name: rtc_clk, type: wire, direction: in, params: { WIDTH: 1 }, desc: "RTC reference clock for PTP timestamping" }
+
+    # RTC Time Outputs
+    - { name: rtc_time_ptp_ns,  type: wire, direction: out, params: { WIDTH: 32 }, desc: "PTP nanoseconds output" }
+    - { name: rtc_time_ptp_sec, type: wire, direction: out, params: { WIDTH: 48 }, desc: "PTP seconds output (48-bit)" }
+    - { name: rtc_time_one_pps, type: wire, direction: out, params: { WIDTH: 1 },  desc: "One pulse-per-second output" }
+
+  register_maps:
+    - name: ha1588
+      base_offset: 0x0000
+      description: HA1588 IEEE 1588 PTP registers
