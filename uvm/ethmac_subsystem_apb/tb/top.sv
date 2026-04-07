@@ -166,7 +166,34 @@ module test_top;
     .md_padoe_o       (md_padoe_o),
 
     // Interrupt
-    .int_o            (int_o)
+    .int_o            (int_o),
+
+    // PTP Event Outputs
+    .rx_ptp_event     (),
+    .tx_ptp_event     (),
+
+    // HA1588 Hardware Servo — Control Inputs (tie off for register tests)
+    .ha1588_servo_en              (1'b0),
+    .ha1588_sync_interval         (30'd0),
+
+    // HA1588 Hardware Servo — PHC Capture Readback (tie off)
+    .phc_seconds                  (48'd0),
+    .phc_nanoseconds              (30'd0),
+    .phc_hw_cap_seconds           (48'd0),
+    .phc_hw_cap_nanoseconds       (30'd0),
+    .phc_hw_cap_sub_nanoseconds   (32'd0),
+
+    // HA1588 Hardware Servo — Outputs
+    .ha1588_hw_capture            (),
+    .ha1588_hw_set_time           (),
+    .ha1588_hw_set_seconds        (),
+    .ha1588_hw_set_nanoseconds    (),
+    .ha1588_hw_adj_valid          (),
+    .ha1588_hw_adj_ns_incr_frac   (),
+
+    // HA1588 Hardware Servo — Status
+    .ha1588_servo_locked              (),
+    .ha1588_servo_phase_step_active   ()
   );
 
   // ---------------------------------------------------------------

@@ -117,6 +117,8 @@ VCS_FLAGS += $(HA1588_IP_DIR)/rtl/tsu/tsu.v
 VCS_FLAGS += $(HA1588_IP_DIR)/rtl/reg/reg.v
 VCS_FLAGS += $(HA1588_IP_DIR)/rtl/top/ha1588.v
 VCS_FLAGS += $(HA1588_IP_DIR)/rtl/bus/wishbone/wb_slv_wrapper.v
+VCS_FLAGS += $(RTL_DIR)/ptp_event_detector.v
+VCS_FLAGS += $(RTL_DIR)/ha1588_servo.sv
 VCS_FLAGS += $(RTL_DIR)/ethmac_subsystem_apb.v
 
 # Testbench
