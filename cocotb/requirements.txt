@@ -3,3 +3,4 @@ cocotb-bus>=0.2.1
 cocotbext-ahb>=0.4.0
 cocotbext-eth>=0.1.0
 cocotbext-wishbone>=0.1.0
+systemrdl-compiler
