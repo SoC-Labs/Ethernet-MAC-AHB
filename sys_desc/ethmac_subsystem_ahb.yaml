@@ -92,6 +92,9 @@ module:
     # Interrupt
     - { name: int_o, type: wire, direction: out, params: { WIDTH: 1 }, desc: "Ethernet MAC interrupt output" }
 
+  srams:
+    - { name: bd_ram, addr_width: 8, data_width: 32, desc: "Ethernet MAC buffer descriptor SRAM (eth_spram_256x32 inside eth_wishbone)" }
+
   register_maps:
     - name: ethmac
       base_offset: 0x0000
