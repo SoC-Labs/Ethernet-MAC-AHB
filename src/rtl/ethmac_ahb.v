@@ -9,7 +9,16 @@
 // - WB master  -> AHB master (DMA transfers)  via wb_to_ahb3lite
 //-----------------------------------------------------------------------------
 
-module ethmac_ahb (
+module ethmac_ahb #(
+  // Byte-swap the MAC's DMA data path so in-memory frame bytes match
+  // the on-wire byte order when paired with a little-endian CPU. The
+  // OpenCores ethmac stores bytes big-endian within each 32-bit word
+  // (first wire byte in bits [31:24]); a LE CPU reading that memory
+  // sees every word reversed, mangling every field past the dst MAC.
+  // Default 1 (swap enabled) because the target system here is a
+  // Cortex-M0 LE; set to 0 for a BE host.
+  parameter SWAP_DMA_BYTES = 1'b1
+)(
   // Clock and Reset
   input  wire        hclk,
   input  wire        hresetn,
@@ -132,7 +141,9 @@ module ethmac_ahb (
   //---------------------------------------------------
   // WISHBONE Master to AHB Master Bridge (DMA)
   //---------------------------------------------------
-  wb_to_ahb3lite u_wb_to_ahb3lite (
+  wb_to_ahb3lite #(
+    .SWAP_DMA_BYTES (SWAP_DMA_BYTES)
+  ) u_wb_to_ahb3lite (
     .clk_i              (hclk),
     .rst_n_i            (hresetn),
 
