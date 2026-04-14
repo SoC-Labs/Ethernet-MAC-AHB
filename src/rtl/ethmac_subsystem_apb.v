@@ -24,7 +24,14 @@
 //   int_o        ◄─ eth_top
 //-----------------------------------------------------------------------------
 
-module ethmac_subsystem_apb (
+module ethmac_subsystem_apb #(
+  // Propagates to wb_to_ahb3lite on the DMA master path. Set to 1 when
+  // the host CPU is little-endian so in-memory frame bytes match on-wire
+  // byte order (required for PicoTCP and similar stacks that read the
+  // RX buffer byte-by-byte). Default 0 preserves legacy behaviour for
+  // the cocotb regression suites under ../cocotb/ethmac_subsystem_apb/.
+  parameter SWAP_DMA_BYTES = 1'b0
+)(
   // Clock and Reset
   input  wire        pclk,
   input  wire        presetn,
@@ -243,7 +250,9 @@ module ethmac_subsystem_apb (
   wire  [2:0] m_wb_cti_o;
   wire  [1:0] m_wb_bte_o;
 
-  wb_to_ahb3lite u_wb_to_ahb3lite (
+  wb_to_ahb3lite #(
+    .SWAP_DMA_BYTES (SWAP_DMA_BYTES)
+  ) u_wb_to_ahb3lite (
     .clk_i              (pclk),
     .rst_n_i            (presetn),
 

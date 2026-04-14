@@ -216,7 +216,20 @@ async def test_cdriver_01_reg_defaults(dut):
 
 @cocotb.test()
 async def test_cdriver_02_set_mac_addr(dut):
-    """CDRIVER-02: Set MAC address via C driver, verify via AHB read."""
+    """CDRIVER-02: Set MAC address via C driver, verify via AHB read.
+
+    Per the OpenCores ethmac spec, the on-wire MAC byte layout is:
+        MAC_ADDR1[15:8] = byte 0 (first byte on wire, MSB of address)
+        MAC_ADDR1[ 7:0] = byte 1
+        MAC_ADDR0[31:24]= byte 2
+        MAC_ADDR0[23:16]= byte 3
+        MAC_ADDR0[15:8] = byte 4
+        MAC_ADDR0[ 7:0] = byte 5 (LSB on wire)
+
+    So for mac = AA:BB:CC:DD:EE:FF (byte 0 = 0xAA):
+        MAC_ADDR0 = CC:DD:EE:FF = 0xCCDDEEFF
+        MAC_ADDR1 = 00:00:AA:BB = 0x0000AABB
+    """
     tb = EthmacCDriverTB(dut)
     await tb.reset()
 
@@ -231,8 +244,8 @@ async def test_cdriver_02_set_mac_addr(dut):
     addr0 = await tb._ahb_read(0x40)
     addr1 = await tb._ahb_read(0x44)
     tb.log.info(f"MAC_ADDR0=0x{addr0:08X}, MAC_ADDR1=0x{addr1:04X}")
-    assert addr0 == 0xDDCCBBAA, f"Expected MAC_ADDR0=0xDDCCBBAA, got 0x{addr0:X}"
-    assert addr1 == 0x0000FFEE, f"Expected MAC_ADDR1=0x0000FFEE, got 0x{addr1:X}"
+    assert addr0 == 0xCCDDEEFF, f"Expected MAC_ADDR0=0xCCDDEEFF, got 0x{addr0:X}"
+    assert addr1 == 0x0000AABB, f"Expected MAC_ADDR1=0x0000AABB, got 0x{addr1:X}"
 
 
 @cocotb.test()

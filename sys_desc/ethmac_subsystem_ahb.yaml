@@ -47,6 +47,12 @@ module:
   params:
     SYS_ADDR_W: { type: int, default: 32, desc: "System address width" }
     SYS_DATA_W: { type: int, default: 32, desc: "System data width" }
+    # Byte-swap the MAC's DMA data path so in-memory frame bytes match
+    # on-wire byte order. Default 1 (on) — LE hosts (Cortex-M etc.) read
+    # buffer memory correctly without software compensation. Set to 0 for
+    # a BE host OR for the legacy test suites under cocotb/ethmac_ahb/
+    # which do their own software un-swap.
+    SWAP_DMA_BYTES: { type: int, default: 1, desc: "1 = bridge byte-swaps DMA words (LE host); 0 = pass-through (BE host or legacy tests)" }
 
   interfaces:
     # Clock and Reset

@@ -15,9 +15,15 @@ module ethmac_ahb #(
   // OpenCores ethmac stores bytes big-endian within each 32-bit word
   // (first wire byte in bits [31:24]); a LE CPU reading that memory
   // sees every word reversed, mangling every field past the dst MAC.
-  // Default 1 (swap enabled) because the target system here is a
-  // Cortex-M0 LE; set to 0 for a BE host.
-  parameter SWAP_DMA_BYTES = 1'b1
+  //
+  // Default 0 (swap disabled) keeps the historical byte layout that
+  // the cocotb DMA tests under this repo were written against — they
+  // compensate for the reversal in software with an explicit word
+  // un-swap ([w[3],w[2],w[1],w[0]]). Firmware that expects in-memory
+  // bytes in wire order (e.g. the PicoTCP stack in the PYNQ Ethernet
+  // subsystem) should override to 1 at instantiation:
+  //     ethmac_ahb #(.SWAP_DMA_BYTES(1'b1)) u_eth ( ... );
+  parameter SWAP_DMA_BYTES = 1'b0
 )(
   // Clock and Reset
   input  wire        hclk,
