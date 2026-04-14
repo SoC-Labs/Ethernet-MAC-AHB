@@ -172,7 +172,7 @@ class SubsystemTB:
         self.log = dut._log
 
         # System clock (100 MHz)
-        self.clock = Clock(dut.pclk, HCLK_PERIOD_NS, units="ns")
+        self.clock = Clock(dut.pclk, HCLK_PERIOD_NS, unit="ns")
         cocotb.start_soon(self.clock.start())
 
         # RTC clock (125 MHz)
@@ -201,18 +201,18 @@ class SubsystemTB:
     async def _rtc_clock_gen(self):
         while True:
             self.dut.rtc_clk.value = 0
-            await Timer(4, units="ns")
+            await Timer(4, unit="ns")
             self.dut.rtc_clk.value = 1
-            await Timer(4, units="ns")
+            await Timer(4, unit="ns")
 
     async def _mii_clock_gen(self):
         while True:
             self.dut.mtx_clk_pad_i.value = 0
             self.dut.mrx_clk_pad_i.value = 0
-            await Timer(20, units="ns")
+            await Timer(20, unit="ns")
             self.dut.mtx_clk_pad_i.value = 1
             self.dut.mrx_clk_pad_i.value = 1
-            await Timer(20, units="ns")
+            await Timer(20, unit="ns")
 
     async def reset(self, cycles=10):
         self.dut.presetn.value = 0

@@ -21,8 +21,8 @@ NS_PER_SECOND = 999_999_999
 
 async def setup(dut):
     """Start both clocks and initialise all inputs to safe defaults."""
-    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
-    cocotb.start_soon(Clock(dut.rtc_clk, RTC_CLK_PERIOD_NS, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rtc_clk, RTC_CLK_PERIOD_NS, unit="ns").start())
     dut.enable.value = 0
     dut.sync_interval.value = NS_PER_SECOND  # ~1 Hz default
     dut.rtc_time_ptp_ns.value = 0

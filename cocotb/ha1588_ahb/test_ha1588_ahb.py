@@ -106,7 +106,7 @@ class Ha1588AhbTB:
         self.log = dut._log
 
         # Start system clock (100 MHz)
-        self.clock = Clock(dut.hclk, HCLK_PERIOD_NS, units="ns")
+        self.clock = Clock(dut.hclk, HCLK_PERIOD_NS, unit="ns")
         cocotb.start_soon(self.clock.start())
 
         # Start RTC clock (125 MHz)
@@ -123,9 +123,9 @@ class Ha1588AhbTB:
         half = RTC_CLK_PERIOD_NS // 2
         while True:
             self.dut.rtc_clk.value = 0
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
             self.dut.rtc_clk.value = 1
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
 
     async def reset(self, cycles=10):
         """Assert reset and initialise tie-off inputs.
@@ -192,10 +192,10 @@ class Ha1588AhbTB:
         while True:
             self.dut.rx_gmii_clk.value = 0
             self.dut.tx_gmii_clk.value = 0
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
             self.dut.rx_gmii_clk.value = 1
             self.dut.tx_gmii_clk.value = 1
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
 
     async def poll_time_ok(self, max_polls=50):
         """Poll GET_TIME handshake until time_ok (bit 0) is set."""

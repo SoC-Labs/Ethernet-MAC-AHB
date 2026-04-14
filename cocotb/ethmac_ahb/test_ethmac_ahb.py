@@ -122,7 +122,7 @@ class EthmacAhbTB:
         self.log = dut._log
 
         # Start system clock (100 MHz)
-        self.clock = Clock(dut.hclk, HCLK_PERIOD_NS, units="ns")
+        self.clock = Clock(dut.hclk, HCLK_PERIOD_NS, unit="ns")
         cocotb.start_soon(self.clock.start())
 
         # AHB Lite Master -> drives the DUT's AHB slave port (register access)
@@ -178,10 +178,10 @@ class EthmacAhbTB:
         while True:
             self.dut.mtx_clk_pad_i.value = 0
             self.dut.mrx_clk_pad_i.value = 0
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
             self.dut.mtx_clk_pad_i.value = 1
             self.dut.mrx_clk_pad_i.value = 1
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
 
     async def reset(self, cycles=10):
         """Assert reset and initialise MII tie-off inputs."""

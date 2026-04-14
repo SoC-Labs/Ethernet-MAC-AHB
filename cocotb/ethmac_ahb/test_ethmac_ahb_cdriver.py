@@ -126,7 +126,7 @@ class EthmacCDriverTB:
 
         # Start system clock
         cocotb.start_soon(
-            Clock(dut.hclk, HCLK_PERIOD_NS, units="ns").start()
+            Clock(dut.hclk, HCLK_PERIOD_NS, unit="ns").start()
         )
         cocotb.start_soon(self._mii_clock_gen())
 
@@ -170,10 +170,10 @@ class EthmacCDriverTB:
         while True:
             self.dut.mtx_clk_pad_i.value = 0
             self.dut.mrx_clk_pad_i.value = 0
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
             self.dut.mtx_clk_pad_i.value = 1
             self.dut.mrx_clk_pad_i.value = 1
-            await Timer(half, units="ns")
+            await Timer(half, unit="ns")
 
     async def reset(self, cycles=10):
         self.dut.hresetn.value = 0

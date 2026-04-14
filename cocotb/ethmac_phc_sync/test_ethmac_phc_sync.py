@@ -39,10 +39,10 @@ NS_PER_SECOND = 1_000_000_000
 
 async def setup(dut):
     """Start clocks and initialise all inputs."""
-    cocotb.start_soon(Clock(dut.pclk, PCLK_PERIOD_NS, units="ns").start())
-    cocotb.start_soon(Clock(dut.mrx_clk_pad_i, MII_CLK_PERIOD_NS, units="ns").start())
-    cocotb.start_soon(Clock(dut.mtx_clk_pad_i, MII_CLK_PERIOD_NS, units="ns").start())
-    cocotb.start_soon(Clock(dut.rtc_clk, RTC_CLK_PERIOD_NS, units="ns").start())
+    cocotb.start_soon(Clock(dut.pclk, PCLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.mrx_clk_pad_i, MII_CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.mtx_clk_pad_i, MII_CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rtc_clk, RTC_CLK_PERIOD_NS, unit="ns").start())
 
     # Ethernet APB — idle
     dut.eth_psel.value    = 0

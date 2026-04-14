@@ -14,7 +14,7 @@ MII_CLK_PERIOD_NS = 40  # 25 MHz MII clock
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def setup(dut):
-    cocotb.start_soon(Clock(dut.clk, MII_CLK_PERIOD_NS, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, MII_CLK_PERIOD_NS, unit="ns").start())
     dut.mii_dv.value   = 0
     dut.mii_data.value  = 0
 
