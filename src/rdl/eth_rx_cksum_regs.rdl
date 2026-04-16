@@ -1,0 +1,328 @@
+// -----------------------------------------------------------------------------
+// SoCLabs RX Checksum Calculator Register Description (SystemRDL 2.0)
+//
+// Describes the register map for `eth_rx_cksum` — the passive MII RX snoop
+// that computes IPv4 header and L4 (UDP/TCP) checksums on every received
+// frame and exposes the results through an APB slave port.
+//
+// Slot 2 of the ethmac_subsystem APB slave mux: base offset 0x2000 from
+// the subsystem's APB slave port.
+//
+// A joint work commissioned on behalf of SoC Labs, under Arm Academic
+// Access license.
+//
+// Contributors
+//   David Mapstone (d.a.mapstone@soton.ac.uk)
+//
+// Copyright 2026, SoC Labs (www.soclabs.org)
+// -----------------------------------------------------------------------------
+
+addrmap eth_rx_cksum_regs {
+    name = "RX Checksum Calculator Register Map";
+    desc = "Passive RX checksum calculator. Snoops the MII RX nibble
+            stream, computes IPv4 header and UDP/TCP checksums, queues
+            per-frame results into a small FIFO that software pops via
+            either the peek-then-FIFO_POP window (0x020-0x03F) or the
+            read-pops alias window (0x080-0x0BF).";
+
+    default hw = r;
+    default sw = r;
+    default reset = 0;
+
+    // =========================================================================
+    // ID — Identification Register (0x000)
+    // =========================================================================
+
+    reg id_reg {
+        name = "ID";
+        desc = "Hard-wired identification value 0x434B534D ('CKSM' in ASCII).
+                Read-only. A bring-up sanity check; lets software confirm
+                the slave is reachable before touching CTRL.";
+
+        field { sw = r; hw = r; } VALUE[31:0] = 32'h434B534D;
+    };
+    id_reg ID @ 0x000;
+
+    // =========================================================================
+    // CTRL — Control Register (0x004)
+    // =========================================================================
+
+    reg ctrl_reg {
+        name = "CTRL";
+        desc = "Control register. Mode and interrupt-enable bits are
+                live R/W; the W1C clear bits self-clear after a single
+                pclk cycle and pulse the corresponding clear strobe in
+                the design.";
+
+        field { sw = rw; hw = r; } EN[0:0] = 0;
+        EN->desc = "Enable. When 0, parser holds in IDLE, counters
+                    freeze, FIFO does not accept new snapshots. Toggling
+                    0->1 does not clear FIFO/counters; use CLR_*.";
+
+        field { sw = rw; hw = r; } MODE[2:1] = 0;
+        MODE->desc = "FIFO mode. 00=LAST_ONLY (depth-1 overwriting),
+                      01=FIFO_DROP_NEW (default ISR mode — full FIFO
+                      drops incoming snapshot), 10=FIFO_DROP_OLD (full
+                      FIFO drops oldest, pushes newest), 11=reserved.";
+
+        field { sw = rw; hw = r; } IRQ_EN_FRAME[8:8] = 0;
+        IRQ_EN_FRAME->desc = "Assert cksum_int_o while FIFO non-empty.";
+
+        field { sw = rw; hw = r; } IRQ_EN_BAD[9:9] = 0;
+        IRQ_EN_BAD->desc = "Assert cksum_int_o on any bad-checksum count
+                            increment until cleared via CLR_COUNTERS.";
+
+        field { sw = rw; hw = r; } IRQ_EN_OVF[10:10] = 0;
+        IRQ_EN_OVF->desc = "Assert cksum_int_o while FIFO_OVF sticky bit
+                            is set.";
+
+        field { sw = w; hw = r; singlepulse; } CLR_COUNTERS[16:16] = 0;
+        CLR_COUNTERS->desc = "Write 1 to zero FRAME_COUNT, IP_*_COUNT,
+                              L4_*_COUNT and clear IRQ_STATUS.BAD_PENDING.
+                              Self-clearing.";
+
+        field { sw = w; hw = r; singlepulse; } CLR_FIFO[17:17] = 0;
+        CLR_FIFO->desc = "Write 1 to flush all queued snapshots. Does
+                          not affect counters. Self-clearing.";
+
+        field { sw = w; hw = r; singlepulse; } CLR_OVF[18:18] = 0;
+        CLR_OVF->desc = "Write 1 to clear STATUS.FIFO_OVF and
+                         IRQ_STATUS.OVF_PENDING. Self-clearing.";
+    };
+    ctrl_reg CTRL @ 0x004;
+
+    // =========================================================================
+    // STATUS — Status Register (0x008)
+    // =========================================================================
+
+    reg status_reg {
+        name = "STATUS";
+        desc = "Live status. All fields read-only and represent a
+                pclk-domain view of the snapshot FIFO and parser.";
+
+        field { sw = r; hw = w; } FIFO_LEVEL[3:0];
+        FIFO_LEVEL->desc = "Current snapshot FIFO occupancy
+                            (0..SNAPSHOT_FIFO_DEPTH).";
+
+        field { sw = r; hw = w; } FIFO_EMPTY[4:4];
+        FIFO_EMPTY->desc = "1 when FIFO_LEVEL == 0.";
+
+        field { sw = r; hw = w; } FIFO_FULL[5:5];
+        FIFO_FULL->desc = "1 when FIFO_LEVEL == SNAPSHOT_FIFO_DEPTH.";
+
+        field { sw = r; hw = w; } FIFO_OVF[6:6];
+        FIFO_OVF->desc = "Sticky overflow flag. Asserts when a snapshot
+                          is dropped (modes 01 or 10) or overwritten
+                          (mode 00). Cleared by CTRL.CLR_OVF.";
+
+        field { sw = r; hw = w; } BUSY[7:7];
+        BUSY->desc = "Parser currently mid-frame in mrx_clk domain
+                      (resampled view).";
+
+        field { sw = r; hw = w; } PARSER_STATE[15:8];
+        PARSER_STATE->desc = "Internal parser state, debug only.";
+
+        field { sw = r; hw = w; } SNAPSHOT_FIFO_DEPTH[23:16];
+        SNAPSHOT_FIFO_DEPTH->desc = "Hardware-fixed FIFO depth, set by
+                                     the SNAPSHOT_FIFO_DEPTH parameter
+                                     at instantiation. Lets generic SW
+                                     size its read loop.";
+    };
+    status_reg STATUS @ 0x008;
+
+    // =========================================================================
+    // Counters (0x00C - 0x01C)
+    // =========================================================================
+
+    reg counter_reg {
+        name = "Counter";
+        desc = "32-bit saturating frame counter, snapshotted from the
+                gray-coded mrx_clk-domain counter.";
+
+        field { sw = r; hw = w; } COUNT[31:0];
+    };
+
+    counter_reg FRAME_COUNT   @ 0x00C;
+    FRAME_COUNT->desc   = "Total frames fully observed (good FCS, parsed)
+                           since last CLR_COUNTERS.";
+
+    counter_reg IP_GOOD_COUNT @ 0x010;
+    IP_GOOD_COUNT->desc = "IPv4-bearing frames with matching IP header
+                           checksum.";
+
+    counter_reg IP_BAD_COUNT  @ 0x014;
+    IP_BAD_COUNT->desc  = "IPv4-bearing frames with mismatched IP header
+                           checksum.";
+
+    counter_reg L4_GOOD_COUNT @ 0x018;
+    L4_GOOD_COUNT->desc = "Frames whose UDP or TCP checksum matched
+                           (UDP cksum=0 counts as good per RFC768).";
+
+    counter_reg L4_BAD_COUNT  @ 0x01C;
+    L4_BAD_COUNT->desc  = "Frames whose UDP or TCP checksum mismatched.";
+
+    // =========================================================================
+    // Snapshot FIFO peek window (0x020 - 0x03C)
+    // ---------------------------------------------------------------------
+    //   Reads are non-destructive — they observe the head of the FIFO.
+    //   Pop the head explicitly via FIFO_POP (0x040), or use the alias
+    //   window at 0x080 for read-and-pop semantics.
+    // =========================================================================
+
+    reg last_frame_info_reg {
+        name = "LAST_FRAME_INFO";
+        desc = "Per-frame summary for the FIFO head entry.";
+
+        field { sw = r; hw = w; } FRAME_LEN[15:0];
+        FRAME_LEN->desc = "Wire frame length in bytes, post-SFD,
+                           pre-FCS.";
+
+        field { sw = r; hw = w; } IP_PROTO[23:16];
+        IP_PROTO->desc = "L4 protocol field from IP header (1=ICMP,
+                          6=TCP, 17=UDP, etc).";
+
+        field { sw = r; hw = w; } VLAN[24:24];
+        VLAN->desc = "Frame carried an 802.1Q VLAN tag.";
+
+        field { sw = r; hw = w; } IS_IPV4[25:25];
+        IS_IPV4->desc = "EtherType (after VLAN strip) was 0x0800.";
+
+        field { sw = r; hw = w; } IS_IPV6[26:26];
+        IS_IPV6->desc = "EtherType (after VLAN strip) was 0x86DD.";
+
+        field { sw = r; hw = w; } IS_UDP[27:27];
+        IS_UDP->desc = "L4 protocol decoded as UDP.";
+
+        field { sw = r; hw = w; } IS_TCP[28:28];
+        IS_TCP->desc = "L4 protocol decoded as TCP.";
+
+        field { sw = r; hw = w; } IP_OK[29:29];
+        IP_OK->desc = "IP header checksum matched (or N/A for IPv6).";
+
+        field { sw = r; hw = w; } L4_OK[30:30];
+        L4_OK->desc = "L4 checksum matched (or zero for UDP). Cleared
+                       for fragmented IPv4 frames — in which case SW
+                       must inspect IP_FRAG and fall back to software
+                       checksum after reassembly.";
+
+        field { sw = r; hw = w; } VALID[31:31];
+        VALID->desc = "Mirror of !STATUS.FIFO_EMPTY at read time. If 0,
+                       the rest of this register and the peek window
+                       are stale.";
+    };
+    last_frame_info_reg LAST_FRAME_INFO @ 0x020;
+
+    reg last_ethertype_reg {
+        name = "LAST_ETHERTYPE";
+        desc = "EtherType after VLAN strip for the FIFO head entry.";
+
+        field { sw = r; hw = w; } ETHERTYPE[15:0];
+    };
+    last_ethertype_reg LAST_ETHERTYPE @ 0x024;
+
+    reg last_cksum_reg {
+        name = "LAST_*_CKSUM";
+        desc = "Calculated vs on-wire checksum for the FIFO head entry.";
+
+        field { sw = r; hw = w; } CALC[15:0];
+        CALC->desc = "Locally computed 16-bit ones'-complement.";
+
+        field { sw = r; hw = w; } WIRE[31:16];
+        WIRE->desc = "Value pulled from the on-wire checksum field.";
+    };
+    last_cksum_reg LAST_IP_HDR_CKSUM @ 0x028;
+    last_cksum_reg LAST_L4_CKSUM     @ 0x02C;
+
+    reg last_ip_reg {
+        name = "LAST_*_IP";
+        desc = "IPv4 address (or low 32 bits of IPv6 address) for the
+                FIFO head entry.";
+
+        field { sw = r; hw = w; } ADDR[31:0];
+    };
+    last_ip_reg LAST_SRC_IP @ 0x030;
+    last_ip_reg LAST_DST_IP @ 0x034;
+
+    reg last_l4_ports_reg {
+        name = "LAST_L4_PORTS";
+        desc = "Source / destination L4 ports for the FIFO head entry.
+                Zero for non-UDP/TCP frames.";
+
+        field { sw = r; hw = w; } DST_PORT[15:0];
+        field { sw = r; hw = w; } SRC_PORT[31:16];
+    };
+    last_l4_ports_reg LAST_L4_PORTS @ 0x038;
+
+    reg last_seqnum_reg {
+        name = "LAST_SEQNUM";
+        desc = "Monotonic snapshot sequence number for the FIFO head
+                entry. Software uses this to correlate a popped snapshot
+                with the frame it just DMA'd, without racing the
+                FRAME_COUNT counter.";
+
+        field { sw = r; hw = w; } SEQNUM[31:0];
+    };
+    last_seqnum_reg LAST_SEQNUM @ 0x03C;
+
+    // =========================================================================
+    // FIFO_POP — Explicit head-pop (0x040)
+    // =========================================================================
+
+    reg fifo_pop_reg {
+        name = "FIFO_POP";
+        desc = "Write any value to pop the FIFO head. No effect when
+                FIFO is empty. Reads return zero.";
+
+        field { sw = w; hw = r; singlepulse; } POP[0:0] = 0;
+    };
+    fifo_pop_reg FIFO_POP @ 0x040;
+
+    // =========================================================================
+    // IRQ_STATUS — Pending-interrupt summary (0x044)
+    // =========================================================================
+
+    reg irq_status_reg {
+        name = "IRQ_STATUS";
+        desc = "Live view of which conditions are currently driving
+                cksum_int_o. Each bit reflects the corresponding
+                IRQ_EN_* mask AND the underlying condition.";
+
+        field { sw = r; hw = w; } FRAME_PENDING[0:0];
+        FRAME_PENDING->desc = "FIFO non-empty AND IRQ_EN_FRAME set.";
+
+        field { sw = r; hw = w; } BAD_PENDING[1:1];
+        BAD_PENDING->desc = "Bad checksum since last CLR_COUNTERS AND
+                             IRQ_EN_BAD set.";
+
+        field { sw = r; hw = w; } OVF_PENDING[2:2];
+        OVF_PENDING->desc = "FIFO_OVF sticky AND IRQ_EN_OVF set.";
+    };
+    irq_status_reg IRQ_STATUS @ 0x044;
+
+    // =========================================================================
+    // Alias window (0x080 - 0x0BC) — read-pops fast-path mirror
+    // ---------------------------------------------------------------------
+    //   Same layout as 0x020-0x03C, but reading offset 0x0BC (the
+    //   SEQNUM alias) atomically pops the FIFO head as the data is
+    //   returned. Intended ISR use:
+    //
+    //     while (!(STATUS & FIFO_EMPTY)) {
+    //         info   = ALIAS_FRAME_INFO;
+    //         cksum  = ALIAS_L4_CKSUM;
+    //         seqnum = ALIAS_SEQNUM;     // ← this read pops
+    //         ...
+    //     }
+    //
+    //   Reads from 0x080-0x0B8 are non-destructive and observe the
+    //   same head entry as the peek window.
+    // =========================================================================
+
+    last_frame_info_reg ALIAS_FRAME_INFO @ 0x080;
+    last_ethertype_reg  ALIAS_ETHERTYPE  @ 0x084;
+    last_cksum_reg      ALIAS_IP_HDR_CKSUM @ 0x088;
+    last_cksum_reg      ALIAS_L4_CKSUM     @ 0x08C;
+    last_ip_reg         ALIAS_SRC_IP     @ 0x090;
+    last_ip_reg         ALIAS_DST_IP     @ 0x094;
+    last_l4_ports_reg   ALIAS_L4_PORTS   @ 0x098;
+    last_seqnum_reg     ALIAS_SEQNUM     @ 0x09C;  // read pops
+};

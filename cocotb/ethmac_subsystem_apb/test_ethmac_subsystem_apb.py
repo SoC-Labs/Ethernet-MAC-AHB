@@ -295,10 +295,24 @@ async def test_cp1_4_apb_mux_disabled_port(dut):
     tb = SubsystemTB(dut)
     await tb.reset()
 
-    # Port 2 (0x2000) is disabled — mux returns PREADY=1 (default)
-    val = await apb_read(dut, 0x2000)
-    dut._log.info("CP1.4: Read from disabled port 0x2000 = 0x%08X", val)
+    # Port 3 (0x3000) is disabled — mux returns PREADY=1 (default).
+    # (Port 2 at 0x2000 is now the RX checksum calculator.)
+    val = await apb_read(dut, 0x3000)
+    dut._log.info("CP1.4: Read from disabled port 0x3000 = 0x%08X", val)
     # Just verify it doesn't hang; data is undefined (likely 0)
+
+
+@cocotb.test()
+async def test_cp1_5_apb_mux_cksum_access(dut):
+    """CP1.5: Port 2 (RX checksum calculator) ID register is reachable."""
+    tb = SubsystemTB(dut)
+    await tb.reset()
+
+    val = await apb_read(dut, 0x2000)  # eth_rx_cksum.ID
+    assert val == 0x434B534D, (
+        f"Cksum ID readback mismatch via APB mux: "
+        f"got 0x{val:08X}, expected 0x434B534D ('CKSM')"
+    )
 
 
 # ===========================================================================

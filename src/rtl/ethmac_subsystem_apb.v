@@ -93,6 +93,11 @@ module ethmac_subsystem_apb #(
   // Interrupt
   output wire        int_o,
 
+  // RX Checksum Calculator Interrupt — separate level-sensitive line
+  // from the eth_rx_cksum block. Integrators choose to OR with int_o
+  // at the SoC top, route to its own NVIC line, or leave dangling.
+  output wire        cksum_int_o,
+
   // PTP Event Outputs (synchronized to pclk)
   output wire        rx_ptp_event,
   output wire        tx_ptp_event,
@@ -124,9 +129,10 @@ module ethmac_subsystem_apb #(
   // =================================================================
   // APB Slave Mux — address decode
   // =================================================================
-  // DECODE4BIT = paddr[12] selects between the two peripherals:
-  //   0 → Port 0 (Ethernet MAC, 0x0000-0x0FFF)
-  //   1 → Port 1 (HA1588 PTP,   0x1000-0x1FFF)
+  // DECODE4BIT = paddr[15:12] selects between the peripherals:
+  //   0 → Port 0 (Ethernet MAC,         0x0000-0x0FFF)
+  //   1 → Port 1 (HA1588 PTP,           0x1000-0x1FFF)
+  //   2 → Port 2 (RX Checksum Calc,     0x2000-0x2FFF)
 
   wire        psel_eth;
   wire [31:0] prdata_eth;
@@ -138,10 +144,15 @@ module ethmac_subsystem_apb #(
   wire        pready_ptp;
   wire        pslverr_ptp;
 
+  wire        psel_cksum;
+  wire [31:0] prdata_cksum;
+  wire        pready_cksum;
+  wire        pslverr_cksum;
+
   cmsdk_apb_slave_mux #(
     .PORT0_ENABLE  (1),
     .PORT1_ENABLE  (1),
-    .PORT2_ENABLE  (0),
+    .PORT2_ENABLE  (1),
     .PORT3_ENABLE  (0),
     .PORT4_ENABLE  (0),
     .PORT5_ENABLE  (0),
@@ -171,8 +182,13 @@ module ethmac_subsystem_apb #(
     .PRDATA1    (prdata_ptp),
     .PSLVERR1   (pslverr_ptp),
 
+    // Port 2 — RX Checksum Calculator
+    .PSEL2      (psel_cksum),
+    .PREADY2    (pready_cksum),
+    .PRDATA2    (prdata_cksum),
+    .PSLVERR2   (pslverr_cksum),
+
     // Unused ports — tie off inputs
-    .PSEL2      (), .PREADY2  (1'b1), .PRDATA2  (32'h0), .PSLVERR2  (1'b0),
     .PSEL3      (), .PREADY3  (1'b1), .PRDATA3  (32'h0), .PSLVERR3  (1'b0),
     .PSEL4      (), .PREADY4  (1'b1), .PRDATA4  (32'h0), .PSLVERR4  (1'b0),
     .PSEL5      (), .PREADY5  (1'b1), .PRDATA5  (32'h0), .PSLVERR5  (1'b0),
@@ -447,6 +463,38 @@ module ethmac_subsystem_apb #(
     .tx_gmii_ctrl   (mtxen_pad_o),
     .tx_gmii_data   ({4'b0, mtxd_pad_o}),
     .tx_giga_mode   (1'b0)
+  );
+
+  // =================================================================
+  // Port 2 — RX Checksum Calculator (passive MII RX snoop)
+  // =================================================================
+  // Native APB slave (no apb_to_wb bridge). Snoops the same MII RX
+  // nibble stream HA1588 already taps. Dual-clock internally —
+  // accumulators on mrx_clk_pad_i, register file on pclk.
+
+  eth_rx_cksum #(
+    .SNAPSHOT_FIFO_DEPTH (2)
+  ) u_eth_rx_cksum (
+    .pclk        (pclk),
+    .presetn     (presetn),
+
+    .mrx_clk_i   (mrx_clk_pad_i),
+    .mrx_rstn_i  (presetn),         // async reset, sync'd internally
+    .mrxd_i      (mrxd_pad_i),
+    .mrxdv_i     (mrxdv_pad_i),
+    .mrxerr_i    (mrxerr_pad_i),
+
+    .psel        (psel_cksum),
+    .penable     (penable),
+    .paddr       (paddr),
+    .pwrite      (pwrite),
+    .pwdata      (pwdata),
+    .pstrb       (pstrb),
+    .prdata      (prdata_cksum),
+    .pready      (pready_cksum),
+    .pslverr     (pslverr_cksum),
+
+    .cksum_int_o (cksum_int_o)
   );
 
   // =================================================================

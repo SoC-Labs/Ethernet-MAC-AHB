@@ -29,11 +29,17 @@ COMPILE_ARGS += -xprop=tmerge
 COMPILE_ARGS += -cm line+cond+tgl+fsm+branch
 SIM_ARGS     += -cm line+cond+tgl+fsm+branch
 
+# Zero-init all regs and memory arrays at time 0 — keeps the cksum
+# block's snapshot FIFO and the HA1588 TSU queue X-prop-clean before
+# any frame has been received.
+SIM_ARGS     += +vcs+initreg+0 +vcs+initmem+0
+
 # Testbench wrapper
 VERILOG_SOURCES  = $(CURDIR)/tb_ethmac_subsystem_apb.v
 
-# DUT: subsystem wrapper + PTP event detector
+# DUT: subsystem wrapper + PTP event detector + RX checksum calc
 VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ptp_event_detector.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/eth_rx_cksum.v
 VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ethmac_subsystem_apb.v
 
 # CMSDK APB slave mux

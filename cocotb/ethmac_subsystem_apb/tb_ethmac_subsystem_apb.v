@@ -152,6 +152,7 @@ module tb_ethmac_subsystem_apb;
 
     // Interrupt
     .int_o            (int_o),
+    .cksum_int_o      (cksum_int_o),
 
     // PTP Event Outputs
     .rx_ptp_event     (rx_ptp_event),
@@ -160,6 +161,7 @@ module tb_ethmac_subsystem_apb;
 
   wire rx_ptp_event;
   wire tx_ptp_event;
+  wire cksum_int_o;
 
   // -------------------------------------------------------
   // Waveform dump
