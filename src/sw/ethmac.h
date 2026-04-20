@@ -216,6 +216,42 @@ int ethmac_mii_read(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
 int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
                       uint32_t data, uint32_t timeout);
 
+/**
+ * Scan PHY addresses 0-31 and return the first that responds.
+ *
+ * A valid PHY's BMSR (reg 1) returns something other than 0x0000 or 0xFFFF
+ * (the bus-idle default). Boards with MODE-strap PHYs (e.g. LAN8720 on
+ * WaveShare) can end up at address 0 or 1 depending on the MODE[0] bit of
+ * the strap — scanning is more robust than hardcoding.
+ *
+ * @param eth  Driver handle (MAC must be init'd; MDIO clock configured).
+ * @return PHY address (0-31) on success, or -1 if no PHY responded.
+ */
+int ethmac_phy_scan(ethmac_t *eth);
+
+/**
+ * Initialise the external PHY for auto-negotiated operation.
+ *
+ * - Writes ADVERTISE (reg 4) to announce 10BASE-T half/full and
+ *   100BASE-TX half/full.
+ * - Writes BMCR (reg 0) with auto-neg enable + restart + 100BASE-TX Full
+ *   as the desired mode (actual mode resolves via auto-neg).
+ * - Polls BMSR (reg 1) until auto-neg completes and link comes up, or
+ *   `an_timeout_ms` milliseconds elapse.
+ *
+ * Needed because some LAN8720 PMOD units (WaveShare) latch MODE[2:0]=000
+ * at power-on — forcing 10BASE-T half-duplex with auto-neg disabled
+ * (BMCR=0x0000). Without this init the PHY silently refuses 100BASE-TX.
+ *
+ * @param eth             Driver handle.
+ * @param phy_addr        PHY address (from `ethmac_phy_scan`).
+ * @param an_timeout_ms   Milliseconds to wait for AN complete + link up
+ *                        (1ms polling granularity; ~3000 is typical).
+ * @return 0 on link-up, -1 on timeout (still safe to proceed — PHY may
+ *         come up later).
+ */
+int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms);
+
 /* ── Buffer Descriptor Management ───────────────────────────────────────── */
 
 /**

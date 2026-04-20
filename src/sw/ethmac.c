@@ -107,6 +107,88 @@ int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
     return ethmac_mii_wait(eth, timeout);
 }
 
+/* ── MII PHY: discovery + init ─────────────────────────────────────────── */
+
+/* IEEE 802.3 / IEEE 802.3-2018 standard PHY register addresses. */
+#define PHY_REG_BMCR        0U  /* Basic Mode Control Register */
+#define PHY_REG_BMSR        1U  /* Basic Mode Status Register */
+#define PHY_REG_ADVERTISE   4U  /* Auto-Negotiation Advertisement */
+
+/* BMCR bits we care about */
+#define PHY_BMCR_ANRESTART  (1U << 9)
+#define PHY_BMCR_ANENABLE   (1U << 12)
+#define PHY_BMCR_SPEED100   (1U << 13)
+#define PHY_BMCR_FULLDUPLEX (1U << 8)
+
+/* BMSR bits we care about */
+#define PHY_BMSR_LSTATUS    (1U << 2)
+#define PHY_BMSR_ANEGDONE   (1U << 5)
+
+/* Full 10/100 half+full advertisement + IEEE 802.3 selector.
+ *   bit 5: 10BASE-T
+ *   bit 6: 10BASE-T Full
+ *   bit 7: 100BASE-TX
+ *   bit 8: 100BASE-TX Full
+ *   bits 4-0: selector = 1 (IEEE 802.3 CSMA/CD)
+ */
+#define PHY_ADV_10_100_HALF_FULL  0x01E1U
+
+/* MII bus timeout for a single read/write. ~65k busy-wait iterations is
+ * comfortably longer than the worst-case MII transaction at our divider. */
+#define PHY_MII_TIMEOUT     65000U
+
+int ethmac_phy_scan(ethmac_t *eth)
+{
+    for (uint32_t addr = 0U; addr < 32U; addr++) {
+        int bmsr = ethmac_mii_read(eth, addr, PHY_REG_BMSR, PHY_MII_TIMEOUT);
+        if (bmsr > 0 && bmsr != 0xFFFF) {
+            return (int)addr;
+        }
+    }
+    return -1;
+}
+
+int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms)
+{
+    /* Set the ADVERTISE register so our FLPs carry the full capability
+     * set even if the PHY's MODE strap pinned the reset-default to a
+     * 10-only subset. */
+    if (ethmac_mii_write(eth, phy_addr, PHY_REG_ADVERTISE,
+                         PHY_ADV_10_100_HALF_FULL,
+                         PHY_MII_TIMEOUT) != 0) {
+        return -1;
+    }
+
+    /* Enable auto-neg + restart it, picking 100BASE-TX Full as our
+     * preferred mode for when both sides agree. The actual negotiated
+     * mode is what the link partner supports. */
+    uint32_t bmcr = PHY_BMCR_ANENABLE | PHY_BMCR_ANRESTART |
+                    PHY_BMCR_SPEED100 | PHY_BMCR_FULLDUPLEX;
+    if (ethmac_mii_write(eth, phy_addr, PHY_REG_BMCR, bmcr,
+                         PHY_MII_TIMEOUT) != 0) {
+        return -1;
+    }
+
+    /* Poll BMSR until both "link up" and "AN complete" bits are set.
+     * We estimate 1 ms per poll using a short busy loop calibrated against
+     * MII_TIMEOUT (which itself is a busy-wait). Not wall-clock accurate
+     * but gives us roughly an_timeout_ms of patience. */
+    const uint32_t poll_inner_loops = PHY_MII_TIMEOUT / 4U;
+    for (uint32_t ms = 0U; ms < an_timeout_ms; ms++) {
+        int bmsr = ethmac_mii_read(eth, phy_addr, PHY_REG_BMSR,
+                                   PHY_MII_TIMEOUT);
+        if (bmsr > 0 &&
+            (bmsr & PHY_BMSR_LSTATUS) &&
+            (bmsr & PHY_BMSR_ANEGDONE)) {
+            return 0;
+        }
+        /* ~1 ms busy delay. Cortex-M0 at 25 MHz, each iteration ~4 cycles
+         * → ~16 us per 100-iter block; scale loops to ~1 ms. */
+        for (volatile uint32_t i = 0; i < poll_inner_loops; i++) { }
+    }
+    return -1;
+}
+
 /* ── Buffer Descriptor Management ───────────────────────────────────────── */
 
 void ethmac_init_bds(ethmac_t *eth)
