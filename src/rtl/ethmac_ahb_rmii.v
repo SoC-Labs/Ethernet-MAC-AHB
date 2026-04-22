@@ -49,6 +49,10 @@ module ethmac_ahb_rmii (
   input  wire  [1:0] rmii_rxd,        // Receive data (2-bit)
   input  wire        rmii_crs_dv,     // Carrier sense / receive data valid
 
+  // Link speed select (quasi-static). 1 = 100 Mbps, 0 = 10 Mbps.
+  // Tie high when the PHY only ever runs at 100 Mbps.
+  input  wire        mode_speed,
+
   // MII Management Interface (directly exposed)
   input  wire        md_pad_i,
   output wire        mdc_pad_o,
@@ -80,6 +84,7 @@ module ethmac_ahb_rmii (
   //---------------------------------------------------
   rmii_to_mii u_rmii_to_mii (
     .RESETn         (hresetn),
+    .mode_speed     (mode_speed),
 
     // RMII side
     .rmii_ref_clk   (rmii_ref_clk),
