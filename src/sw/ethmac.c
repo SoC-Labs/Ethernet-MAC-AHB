@@ -73,12 +73,23 @@ static int ethmac_mii_wait(ethmac_t *eth, uint32_t timeout)
     return 0;
 }
 
+/* MIIADDRESS bit layout (confirmed from OpenCores eth_registers.v:
+ *   assign r_RGAD[4:0] = MIIADDRESSOut[12:8];   // register addr
+ *   assign r_FIAD[4:0] = MIIADDRESSOut[4:0];    // PHY address
+ * Earlier revisions of this driver had FIAD and RGAD swapped, which
+ * silently sent every MDIO transaction to the wrong PHY+register —
+ * phy_scan landed on the first "responding" address but it was
+ * actually just PHY 1 returning BMCR-of-reg-n, and phy_init writes
+ * all missed the actual PHY. PHY ended up at strap defaults no
+ * matter what firmware advertised, which is why the MPS3 TX debug
+ * kept finding the PHY at 100M even when we tried to force 10M.
+ */
 int ethmac_mii_read(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
                      uint32_t timeout)
 {
     /* Set PHY + register address */
-    eth->regs->MIIADDRESS = ((phy_addr & 0x1FU) << 8U) |
-                             (reg_addr & 0x1FU);
+    eth->regs->MIIADDRESS = ((reg_addr & 0x1FU) << 8U) |
+                             (phy_addr & 0x1FU);
 
     /* Trigger single read (RSTAT) */
     eth->regs->MIICOMMAND = 0x2U;
@@ -93,9 +104,9 @@ int ethmac_mii_read(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
 int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
                       uint32_t data, uint32_t timeout)
 {
-    /* Set PHY + register address */
-    eth->regs->MIIADDRESS = ((phy_addr & 0x1FU) << 8U) |
-                             (reg_addr & 0x1FU);
+    /* Set PHY + register address (RGAD in [12:8], FIAD in [4:0]) */
+    eth->regs->MIIADDRESS = ((reg_addr & 0x1FU) << 8U) |
+                             (phy_addr & 0x1FU);
 
     /* Set write data */
     eth->regs->MIITX_DATA = data & 0xFFFFU;
@@ -124,7 +135,7 @@ int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
 #define PHY_BMSR_LSTATUS    (1U << 2)
 #define PHY_BMSR_ANEGDONE   (1U << 5)
 
-/* Full 10/100 half+full advertisement + IEEE 802.3 selector.
+/* 10/100 half+full advertisement + IEEE 802.3 selector.
  *   bit 5: 10BASE-T
  *   bit 6: 10BASE-T Full
  *   bit 7: 100BASE-TX
@@ -132,6 +143,16 @@ int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
  *   bits 4-0: selector = 1 (IEEE 802.3 CSMA/CD)
  */
 #define PHY_ADV_10_100_HALF_FULL  0x01E1U
+/* 10BASE-T-only advertise. Used on boards whose RMII bridge runs at
+ * 10 Mbps for shifter-compatibility reasons (MPS3 HBI0309C
+ * TXS0104EPWR). Firmware's ethmac_phy_init takes the advertise value
+ * as a parameter, so build-time override via -DETH_PHY_ADVERTISE=0x41
+ * keeps the driver speed-agnostic. */
+#define PHY_ADV_10_FULL           0x0041U
+
+#ifndef ETH_PHY_ADVERTISE
+#  define ETH_PHY_ADVERTISE       PHY_ADV_10_100_HALF_FULL
+#endif
 
 /* MII bus timeout for a single read/write. ~65k busy-wait iterations is
  * comfortably longer than the worst-case MII transaction at our divider. */
@@ -150,20 +171,25 @@ int ethmac_phy_scan(ethmac_t *eth)
 
 int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms)
 {
-    /* Set the ADVERTISE register so our FLPs carry the full capability
-     * set even if the PHY's MODE strap pinned the reset-default to a
-     * 10-only subset. */
+    /* Set the ADVERTISE register to the per-board capability set. Default
+     * is 10/100 full+half; boards like MPS3 whose RMII bridge runs at 10M
+     * rebuild the firmware with -DETH_PHY_ADVERTISE=0x41 (10M-FD only)
+     * so AN settles at 10 Mbps to match the bridge. */
     if (ethmac_mii_write(eth, phy_addr, PHY_REG_ADVERTISE,
-                         PHY_ADV_10_100_HALF_FULL,
+                         ETH_PHY_ADVERTISE,
                          PHY_MII_TIMEOUT) != 0) {
         return -1;
     }
 
-    /* Enable auto-neg + restart it, picking 100BASE-TX Full as our
-     * preferred mode for when both sides agree. The actual negotiated
-     * mode is what the link partner supports. */
+    /* Enable auto-neg + restart it. Drop SPEED100 if we only advertised
+     * 10 Mbps — the BMCR SPEED bit is the "preferred" speed when AN
+     * doesn't reach a conclusion (parallel detect); leaving it at 100 M
+     * with a 10-M-only advertise causes LAN8720 to misencode in 10 M
+     * mode. */
     uint32_t bmcr = PHY_BMCR_ANENABLE | PHY_BMCR_ANRESTART |
-                    PHY_BMCR_SPEED100 | PHY_BMCR_FULLDUPLEX;
+                    PHY_BMCR_FULLDUPLEX;
+    if ((ETH_PHY_ADVERTISE & 0x0180U) != 0U)
+        bmcr |= PHY_BMCR_SPEED100;
     if (ethmac_mii_write(eth, phy_addr, PHY_REG_BMCR, bmcr,
                          PHY_MII_TIMEOUT) != 0) {
         return -1;
