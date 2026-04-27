@@ -1,9 +1,9 @@
 //-----------------------------------------------------------------------------
 // SoCLabs Ethernet MAC SRAM Wrapper (ASIC variant)
-// - Instantiates the rf_08k compiled register file macro (TSMC 65nm).
-// - The rf_08k is a 2048x32 macro; only 256 words are used by the
-//   ethernet MAC buffer descriptors. Upper address bits are tied to 0.
-// - Maps the ethmac_sram interface to the rf_08k port convention:
+// - Instantiates the rf_01k compiled register file macro (TSMC 65nm).
+// - The rf_01k is a 256x32 macro, exactly matching the ethernet MAC
+//   buffer-descriptor RAM size (eth_spram_256x32).
+// - Maps the ethmac_sram interface to the rf_01k port convention:
 //     * Active-low CEN  (chip enable)  <- inverted from active-high CS
 //     * Active-low WEN  (per-bit)      <- expanded & inverted from WREN byte enables
 //     * Active-low GWEN (global write) <- low when any write is active
@@ -35,24 +35,23 @@ module ethmac_sram #(
 
     // ── Interface adaptation ─────────────────────────────────────────────
 
-    // Chip enable: rf_08k CEN is active-low
+    // Chip enable: rf_01k CEN is active-low
     wire cen = ~CS;
 
     // Global write enable: active-low, asserted when any byte lane writes
     wire gwen = ~(|WREN);
 
     // Per-bit write enables: expand 4-bit byte enables to 32-bit, then invert
-    // (rf_08k WEN is active-low, per-bit granularity)
+    // (rf_01k WEN is active-low, per-bit granularity)
     wire [31:0] wen = ~{{8{WREN[3]}}, {8{WREN[2]}}, {8{WREN[1]}}, {8{WREN[0]}}};
 
-    // ── rf_08k macro instantiation ───────────────────────────────────────
-    // rf_08k is 2048x32 (11-bit address). Pad the 8-bit word address from
-    // eth_spram_256x32 with leading zeros to fill the upper address bits.
+    // ── rf_01k macro instantiation ───────────────────────────────────────
+    // rf_01k is 256x32 (8-bit address), matching eth_spram_256x32 directly.
 
-    rf_08k u_rf (
+    rf_01k u_rf (
         .CLK   (CLK),
         .CEN   (cen),
-        .A     ({3'b000, ADDR[AW-1:2]}),  // 11-bit address, upper 3 bits tied low
+        .A     (ADDR[AW-1:2]),
         .D     (WDATA),
         .GWEN  (gwen),
         .WEN   (wen),

@@ -26,10 +26,10 @@ export FLIST  := $(if $(wildcard $(FLIST_ASIC)),$(FLIST_ASIC),$(FLIST_DEFAULT))
 # Defaultly using the 65nm Library
 export TARGET_LIB     ?= /research/AAA/phys_ip_library/arm/tsmc/cln65lp/sc12_base_rvt/r0p0/db/sc12_cln65lp_base_rvt_ss_typical_max_1p08v_125c.db
 
-# Compiled SRAM macro library (rf_08k — 2048x32, TSMC 65nm)
-export MEM_PATH       ?= /research/precompiled_mems/TSMC65/rf_08k
-export MEM_LIB_SS     ?= $(MEM_PATH)/rf_08k_ss_1p08v_1p08v_125c.lib
-export MEM_DB_SS      ?= $(MEM_PATH)/rf_08k_ss_1p08v_1p08v_125c.db
+# Compiled SRAM macro library (rf_01k — 256x32, TSMC 65nm)
+export MEM_PATH       ?= /research/precompiled_mems/TSMC65/rf_01k
+export MEM_LIB_SS     ?= $(MEM_PATH)/rf_01k_ss_1p08v_1p08v_125c.lib
+export MEM_DB_SS      ?= $(MEM_PATH)/rf_01k_ss_1p08v_1p08v_125c.db
 
 # Link libraries — target + memory macro lib when using ASIC filelist
 export LINK_LIBS      ?= $(TARGET_LIB) $(if $(wildcard $(FLIST_ASIC)),$(MEM_DB_SS))
