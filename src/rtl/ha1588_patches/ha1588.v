@@ -68,7 +68,9 @@ wire [  7:0] tx_q_ptp_msgid_mask;
 wire [  7:0] tx_q_stat;
 wire [127:0] tx_q_data;
 
-// PATCHED: Synchronise system rst into rtc_clk domain for the RTC
+// PATCHED: Synchronise system rst into rtc_clk domain for the RTC.
+//   2-FF async-assert / sync-deassert. Asserts immediately on rst, deasserts
+//   cleanly on rtc_clk after rst has cleared.
 reg rst_rtc_s1, rst_rtc_s2;
 always @(posedge rtc_clk or posedge rst) begin
   if (rst) begin
@@ -80,12 +82,36 @@ always @(posedge rtc_clk or posedge rst) begin
   end
 end
 
-// PATCHED: OR system reset (synchronised) with software rtc_rst
-wire rtc_rst_combined = rst_rtc_s2 | rtc_rst;
+// PATCHED: Combine system rst (sync'd to rtc_clk) with software rtc_rst.
+//   rtc_rst is rgs-controlled and already in rtc_clk; rst_rtc_s2 is rst
+//   sync'd to rtc_clk. Register the OR on a flop with rst as async-set so
+//   the resulting signal is glitch-free when used as the RTC's async
+//   reset. Without this flop, lint flags GLTASR (combinational logic in
+//   async-reset path) at the rtc instance.
+reg rtc_rst_combined;
+always @(posedge rtc_clk or posedge rst) begin
+  if (rst) rtc_rst_combined <= 1'b1;
+  else     rtc_rst_combined <= rtc_rst;
+end
 
-// PATCHED: OR system reset into queue reset signals so FIFOs initialise
-wire rx_q_rst_combined = rx_q_rst | rst;
-wire tx_q_rst_combined = tx_q_rst | rst;
+// PATCHED: System reset OR'd with rgs queue resets.
+//   rx_q_rst / tx_q_rst are rgs-controlled (sys_fclk = clk). Register on
+//   clk with rst as async-set. Output drives the queue's async aclr port
+//   (used on both gmii write side and sys_fclk read side); the system
+//   reset propagates cleanly without the combinational OR that lint
+//   flags as GLTASR. Cross-domain async-reset deassertion to gmii_clk
+//   remains a known CDC limitation of the OpenCores queue interface
+//   (Reset_sync02).
+reg rx_q_rst_combined;
+always @(posedge clk or posedge rst) begin
+  if (rst) rx_q_rst_combined <= 1'b1;
+  else     rx_q_rst_combined <= rx_q_rst;
+end
+reg tx_q_rst_combined;
+always @(posedge clk or posedge rst) begin
+  if (rst) tx_q_rst_combined <= 1'b1;
+  else     tx_q_rst_combined <= tx_q_rst;
+end
 
 rgs u_rgs
 (
