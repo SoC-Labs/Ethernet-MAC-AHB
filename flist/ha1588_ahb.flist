@@ -1,7 +1,7 @@
 +incdir+${ETHMAC_AHB_HOME}/src/rtl
 +incdir+${HA1588_IP_DIR}/rtl/tsu
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/rtc.v
-${HA1588_IP_DIR}/rtl/tsu/ptp_parser.v
+${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_parser.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_queue.v
 ${HA1588_IP_DIR}/rtl/tsu/tsu.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/reg.v
