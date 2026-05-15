@@ -472,6 +472,43 @@ module ethmac_subsystem_apb #(
   // nibble stream HA1588 already taps. Dual-clock internally —
   // accumulators on mrx_clk_pad_i, register file on pclk.
 
+  // -----------------------------------------------------------------
+  // ASIC sign-off bug 6: mrx/mtx-domain reset bridges (RDC fix)
+  // -----------------------------------------------------------------
+  // `presetn` is the hclk/pclk-domain system reset. Feeding it directly
+  // as the async reset of mrx_clk_pad_i / mtx_clk_pad_i flops (the cksum
+  // block, the two ptp_event_detectors, and the toggle-CDC source flops)
+  // is a reset-domain crossing: it ASSERTS fine (async) but its
+  // DEASSERTION is asynchronous to the MII clocks → recovery/removal
+  // timing violation, so e.g. eth_rx_cksum's gray FIFO write pointer can
+  // leave reset metastable/skewed and break the Gray-code invariant.
+  // Standard 2-FF reset bridge: async-assert on presetn (so power-on
+  // still forces reset immediately — no double-reset, assertion path
+  // unchanged), sync-deassert onto each MII clock. If the PHY RX/TX
+  // clock is absent (link down at boot) the bridge stays in reset — the
+  // safe state (block held until a clock exists).
+  reg mrx_rstn_meta, mrx_rstn_sync;
+  always @(posedge mrx_clk_pad_i or negedge presetn) begin
+    if (!presetn) begin
+      mrx_rstn_meta <= 1'b0;
+      mrx_rstn_sync <= 1'b0;
+    end else begin
+      mrx_rstn_meta <= 1'b1;
+      mrx_rstn_sync <= mrx_rstn_meta;
+    end
+  end
+
+  reg mtx_rstn_meta, mtx_rstn_sync;
+  always @(posedge mtx_clk_pad_i or negedge presetn) begin
+    if (!presetn) begin
+      mtx_rstn_meta <= 1'b0;
+      mtx_rstn_sync <= 1'b0;
+    end else begin
+      mtx_rstn_meta <= 1'b1;
+      mtx_rstn_sync <= mtx_rstn_meta;
+    end
+  end
+
   eth_rx_cksum #(
     .SNAPSHOT_FIFO_DEPTH (2)
   ) u_eth_rx_cksum (
@@ -479,7 +516,7 @@ module ethmac_subsystem_apb #(
     .presetn     (presetn),
 
     .mrx_clk_i   (mrx_clk_pad_i),
-    .mrx_rstn_i  (presetn),         // async reset, sync'd internally
+    .mrx_rstn_i  (mrx_rstn_sync),   // bug 6: mrx-domain bridged reset (was presetn)
     .mrxd_i      (mrxd_pad_i),
     .mrxdv_i     (mrxdv_pad_i),
     .mrxerr_i    (mrxerr_pad_i),
@@ -509,7 +546,7 @@ module ethmac_subsystem_apb #(
 
   ptp_event_detector u_rx_ptp_det (
     .clk       (mrx_clk_pad_i),
-    .resetn    (presetn),
+    .resetn    (mrx_rstn_sync),   // bug 6: mrx-domain bridged reset (was presetn)
     .mii_dv    (mrxdv_pad_i),
     .mii_data  (mrxd_pad_i),
     .ptp_event (rx_ptp_event_raw)
@@ -517,7 +554,7 @@ module ethmac_subsystem_apb #(
 
   ptp_event_detector u_tx_ptp_det (
     .clk       (mtx_clk_pad_i),
-    .resetn    (presetn),
+    .resetn    (mtx_rstn_sync),   // bug 6: mtx-domain bridged reset (was presetn)
     .mii_dv    (mtxen_pad_o),
     .mii_data  (mtxd_pad_o),
     .ptp_event (tx_ptp_event_raw)
@@ -532,8 +569,8 @@ module ethmac_subsystem_apb #(
 
   // RX path (mrx_clk → pclk)
   reg rx_toggle_src;
-  always @(posedge mrx_clk_pad_i or negedge presetn) begin
-    if (!presetn)
+  always @(posedge mrx_clk_pad_i or negedge mrx_rstn_sync) begin   // bug 6
+    if (!mrx_rstn_sync)
       rx_toggle_src <= 1'b0;
     else if (rx_ptp_event_raw)
       rx_toggle_src <= ~rx_toggle_src;
@@ -551,8 +588,8 @@ module ethmac_subsystem_apb #(
 
   // TX path (mtx_clk → pclk)
   reg tx_toggle_src;
-  always @(posedge mtx_clk_pad_i or negedge presetn) begin
-    if (!presetn)
+  always @(posedge mtx_clk_pad_i or negedge mtx_rstn_sync) begin   // bug 6
+    if (!mtx_rstn_sync)
       tx_toggle_src <= 1'b0;
     else if (tx_ptp_event_raw)
       tx_toggle_src <= ~tx_toggle_src;

@@ -642,6 +642,23 @@ begin
             BDWrite <=#Tp BDCs[3:0] & {4{WB_WE_I}};
             BDRead <=#Tp (|BDCs) & ~WB_WE_I;
           end
+        // ASIC sign-off bug 4: this clocked state-register case listed only
+        // 8 of 32 selector codes with no `default`, so an unreachable/illegal
+        // {WbEn_q,RxEn_q,TxEn_q,RxEn_needed,TxEn_needed} (e.g. transient _q
+        // skew out of async-reset recovery — bug 6) inferred a latched/held
+        // arbiter FSM (BD-RAM hang). Recover to the safe WbEn (idle) stage,
+        // identical to the 5'b000_00 / Reset state. Inert on the 8 legal
+        // codes (they still match first).
+        default :
+          begin
+            WbEn <=#Tp 1'b1;
+            RxEn <=#Tp 1'b0;
+            TxEn <=#Tp 1'b0;
+            ram_addr <=#Tp WB_ADR_I[9:2];
+            ram_di <=#Tp WB_DAT_I;
+            BDWrite <=#Tp BDCs[3:0] & {4{WB_WE_I}};
+            BDRead <=#Tp (|BDCs) & ~WB_WE_I;
+          end
       endcase
     end
 end
