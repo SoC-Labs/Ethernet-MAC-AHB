@@ -130,6 +130,8 @@ int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
 #define PHY_BMCR_ANENABLE   (1U << 12)
 #define PHY_BMCR_SPEED100   (1U << 13)
 #define PHY_BMCR_FULLDUPLEX (1U << 8)
+#define PHY_BMCR_PWRDOWN    (1U << 11) /* 1 = PHY powered down */
+#define PHY_BMCR_RESET      (1U << 15) /* soft reset, self-clearing */
 
 /* BMSR bits we care about */
 #define PHY_BMSR_LSTATUS    (1U << 2)
@@ -171,6 +173,50 @@ int ethmac_phy_scan(ethmac_t *eth)
 
 int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms)
 {
+    /* Soft-reset the PHY and bring it out of power-down before any
+     * config. The original init never issued BMCR.RESET nor explicitly
+     * cleared BMCR.PWRDOWN; a LAN8720 left powered-down (or in a stale
+     * state across a warm SoC reset) silently ignores subsequent writes.
+     * Write BMCR.RESET (self-clearing) and poll BMCR until the PHY clears
+     * it, bounded by the same ~1 ms/iteration busy-wait the AN poll uses.
+     * NOTE: this requires a live PHY REF_CLK — with no PHY clock (e.g.
+     * the LAN8720 PMOD nINTSEL strapped to external-clock mode so
+     * REF_CLK_OUT is never generated) MDIO never completes and this
+     * returns -1, which is the correct *explicit* failure rather than
+     * silently proceeding against a dead PHY. */
+    if (ethmac_mii_write(eth, phy_addr, PHY_REG_BMCR, PHY_BMCR_RESET,
+                         PHY_MII_TIMEOUT) != 0) {
+        return -1;
+    }
+    {
+        const uint32_t rst_inner_loops = PHY_MII_TIMEOUT / 4U;
+        int reset_cleared = 0;
+        for (uint32_t ms = 0U; ms < 50U; ms++) {
+            int v = ethmac_mii_read(eth, phy_addr, PHY_REG_BMCR,
+                                    PHY_MII_TIMEOUT);
+            if (v > 0 && v != 0xFFFF && ((uint32_t)v & PHY_BMCR_RESET) == 0U) {
+                reset_cleared = 1;
+                break;
+            }
+            for (volatile uint32_t i = 0; i < rst_inner_loops; i++) { }
+        }
+        if (!reset_cleared) {
+            return -1;  /* PHY never left reset — no REF_CLK / dead MDIO */
+        }
+    }
+    /* Belt-and-braces: explicitly clear PWRDOWN if the PHY powered up
+     * into it (the BMCR config write below already has bit 11 = 0, but
+     * make the intent explicit and robust to a power-down default). */
+    {
+        int v = ethmac_mii_read(eth, phy_addr, PHY_REG_BMCR,
+                                PHY_MII_TIMEOUT);
+        if (v > 0 && v != 0xFFFF && ((uint32_t)v & PHY_BMCR_PWRDOWN) != 0U) {
+            (void)ethmac_mii_write(eth, phy_addr, PHY_REG_BMCR,
+                                   (uint32_t)v & ~PHY_BMCR_PWRDOWN,
+                                   PHY_MII_TIMEOUT);
+        }
+    }
+
     /* Set the ADVERTISE register to the per-board capability set. Default
      * is 10/100 full+half; boards like MPS3 whose RMII bridge runs at 10M
      * rebuild the firmware with -DETH_PHY_ADVERTISE=0x41 (10M-FD only)
