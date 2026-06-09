@@ -35,8 +35,15 @@ void ha1588_rtc_read_time(ha1588_t *ha, ha1588_ts_t *ts)
 {
     rtc_ctrl_pulse(ha, HA1588_RTC_CTRL_TIME_RD);
 
-    /* Wait for time_ok flag (bit 0 of RTC_CTRL readback). */
-    while (!(HA1588_REG(ha, HA1588_RTC_CTRL) & HA1588_RTC_CTRL_TIME_OK)) { }
+    /* Wait for time_ok flag (bit 0 of RTC_CTRL readback) — BOUNDED so a dead
+     * rtc_clk can't hang the servo; on timeout we read whatever is latched. */
+    {
+        uint32_t w = 1000000u;
+        while (!(HA1588_REG(ha, HA1588_RTC_CTRL) & HA1588_RTC_CTRL_TIME_OK)) {
+            if (--w == 0u)
+                break;
+        }
+    }
 
     ts->sec_hi      = HA1588_REG(ha, HA1588_RTC_SEC_HI);
     ts->sec_lo      = HA1588_REG(ha, HA1588_RTC_SEC_LO);
@@ -88,8 +95,16 @@ static int tsu_queue_read(ha1588_t *ha, uint32_t ctrl_off, uint32_t stat_off,
     /* Advance the FIFO to the next entry. */
     HA1588_REG(ha, ctrl_off) = HA1588_TSU_CTRL_Q_RD;
 
-    /* Wait for the queue read handshake to complete. */
-    while (!(HA1588_REG(ha, ctrl_off) & HA1588_TSU_CTRL_QU_OK)) { }
+    /* Wait for the queue read handshake to complete — BOUNDED so a wedged TSU
+     * or dead rtc_clk can't hang the caller (the data was already read above;
+     * on timeout we return -1 and the caller treats the timestamp as missing). */
+    {
+        uint32_t w = 1000000u;
+        while (!(HA1588_REG(ha, ctrl_off) & HA1588_TSU_CTRL_QU_OK)) {
+            if (--w == 0u)
+                return -1;
+        }
+    }
 
     return 0;
 }
