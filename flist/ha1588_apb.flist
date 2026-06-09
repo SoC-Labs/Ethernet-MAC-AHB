@@ -3,7 +3,7 @@
 ${HA1588_IP_DIR}/rtl/rtc/rtc.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_parser.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_queue.v
-${HA1588_IP_DIR}/rtl/tsu/tsu.v
+${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/tsu.v
 ${HA1588_IP_DIR}/rtl/reg/reg.v
 ${HA1588_IP_DIR}/rtl/top/ha1588.v
 ${HA1588_IP_DIR}/rtl/bus/wishbone/wb_slv_wrapper.v

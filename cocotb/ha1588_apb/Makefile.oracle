@@ -1,0 +1,78 @@
+# Makefile.oracle -- run the ha1588_apb cocotb suite (incl. the SFD-lock /
+# preamble-length oracle test_tsu_rx_preamble_sfd_oracle) against a SELECTABLE
+# tsu.v, so the same trustworthy oracle can prove the bug on STOCK RTL and
+# validate a fix on a patched tsu.v.
+#
+# Usage:
+#   source ../../set_env.sh
+#
+#   # 1) STOCK RTL (read-only OpenCores IP) -- proves the bug:
+#   make -f Makefile.oracle TSU_VARIANT=stock \
+#        TESTCASE=test_tsu_rx_preamble_sfd_oracle
+#
+#   # 2) Local ha1588_patches/tsu.v (currently == stock; Phase-3 puts the FIX here):
+#   make -f Makefile.oracle TSU_VARIANT=patched \
+#        TESTCASE=test_tsu_rx_preamble_sfd_oracle
+#
+#   # 3) The preserved FAILED attempt (regression demo -- expected to misbehave):
+#   make -f Makefile.oracle TSU_VARIANT=sfdwip \
+#        TESTCASE=test_tsu_rx_preamble_sfd_oracle
+#
+#   # Validate a FIX (CASE B should now ALSO enqueue): use the *_fixed test,
+#   # which is skip=True by default -- run it explicitly by name:
+#   make -f Makefile.oracle TSU_VARIANT=patched \
+#        TESTCASE=test_tsu_rx_preamble_sfd_oracle_fixed
+#
+# TSU_VARIANT selects which tsu.v is compiled (default: stock):
+#   stock  -> $(HA1588_RTL)/tsu/tsu.v                (read-only OpenCores IP)
+#   patched-> $(PATCH_DIR)/tsu.v                     (local override)
+#   sfdwip -> $(PATCH_DIR)/tsu.v.sfd-lock-wip        (preserved failed attempt)
+# Or override TSU_SRC directly with an absolute path.
+
+TOPLEVEL_LANG = verilog
+SIM ?= vcs
+
+HA1588_IP_DIR   ?= /research/AAA/ip_library/OpenCores-HA1588
+HA1588_RTL       = $(HA1588_IP_DIR)/rtl
+PATCH_DIR        = $(CURDIR)/../../src/rtl/ha1588_patches
+
+# --- tsu.v variant selection -------------------------------------------------
+TSU_VARIANT ?= stock
+ifeq ($(TSU_VARIANT),stock)
+  TSU_SRC ?= $(HA1588_RTL)/tsu/tsu.v
+endif
+ifeq ($(TSU_VARIANT),patched)
+  TSU_SRC ?= $(PATCH_DIR)/tsu.v
+endif
+ifeq ($(TSU_VARIANT),sfdwip)
+  TSU_SRC ?= $(PATCH_DIR)/tsu.v.sfd-lock-wip
+endif
+# Fallback if an unknown variant is given
+TSU_SRC ?= $(HA1588_RTL)/tsu/tsu.v
+
+# ptp_parser: the local ha1588_patches copy differs from stock ONLY by a CDC
+# async-reset bridge (no alignment/EtherType change), so use it for both stock
+# and patched -- the preamble bug is identical either way. (Switch to
+# $(HA1588_RTL)/tsu/ptp_parser.v here if you want the literal stock parser.)
+PTP_PARSER_SRC ?= $(PATCH_DIR)/ptp_parser.v
+
+COMPILE_ARGS += +incdir+$(HA1588_RTL)/tsu
+COMPILE_ARGS += -sverilog
+
+VERILOG_SOURCES  = $(CURDIR)/tb_ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/apb_to_wb.v
+VERILOG_SOURCES += $(HA1588_RTL)/bus/wishbone/wb_slv_wrapper.v
+VERILOG_SOURCES += $(HA1588_RTL)/top/ha1588.v
+VERILOG_SOURCES += $(HA1588_RTL)/reg/reg.v
+VERILOG_SOURCES += $(HA1588_RTL)/rtc/rtc.v
+VERILOG_SOURCES += $(TSU_SRC)
+VERILOG_SOURCES += $(PTP_PARSER_SRC)
+VERILOG_SOURCES += $(PATCH_DIR)/ptp_queue.v
+
+TOPLEVEL = tb_ha1588_apb
+MODULE   = test_ha1588_apb
+
+$(info Makefile.oracle: TSU_VARIANT=$(TSU_VARIANT)  TSU_SRC=$(TSU_SRC))
+
+include $(shell cocotb-config --makefiles)/Makefile.sim

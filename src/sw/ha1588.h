@@ -150,7 +150,11 @@ int ha1588_rx_queue_read(ha1588_t *ha, ha1588_ts_t *ts);
 /** Reset (flush) the RX timestamp queue. */
 void ha1588_rx_queue_reset(ha1588_t *ha);
 
-/** Return the current RX queue depth (entries available). */
+/**
+ * Return the current RX queue depth (entries available) WITHOUT dequeuing.
+ * Reads RX_TSU_STAT only; STAT is a status read with no side effects (no Q_RD
+ * pulse is issued, so the FIFO head is NOT advanced).
+ */
 static inline uint32_t ha1588_rx_queue_depth(ha1588_t *ha)
 {
     return HA1588_REG(ha, HA1588_RX_TSU_STAT) & HA1588_TSU_STAT_Q_DEPTH_Msk;
@@ -178,7 +182,11 @@ int ha1588_tx_queue_read(ha1588_t *ha, ha1588_ts_t *ts);
 /** Reset (flush) the TX timestamp queue. */
 void ha1588_tx_queue_reset(ha1588_t *ha);
 
-/** Return the current TX queue depth (entries available). */
+/**
+ * Return the current TX queue depth (entries available) WITHOUT dequeuing.
+ * Reads TX_TSU_STAT only; STAT is a status read with no side effects (no Q_RD
+ * pulse is issued, so the FIFO head is NOT advanced).
+ */
 static inline uint32_t ha1588_tx_queue_depth(ha1588_t *ha)
 {
     return HA1588_REG(ha, HA1588_TX_TSU_STAT) & HA1588_TSU_STAT_Q_DEPTH_Msk;
