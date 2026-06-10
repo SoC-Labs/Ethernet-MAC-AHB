@@ -63,7 +63,10 @@ module:
     - { name: ahb_slave, type: ahb, direction: target, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W }, desc: "AHB slave port — Ethernet MAC registers (0x0000-0x0FFF), HA1588 PTP registers (0x1000-0x1FFF)" }
 
     # AHB master port (Ethernet MAC DMA for packet transfer)
-    - { name: ahb_master, type: ahb, direction: initiator, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W }, desc: "AHB master port — Ethernet MAC DMA engine for TX/RX packet buffer access" }
+    # INST_PORT_PREFIXED: this module's master ports are ahb_master_<sig> (not
+    # the bare HADDR/HTRANS the generator emits by default for an ahb_master
+    # connection), so the bundle must expand to the prefixed port names.
+    - { name: ahb_master, type: ahb, direction: initiator, params: { ADDR_WIDTH: $SYS_ADDR_W, DATA_WIDTH: $SYS_DATA_W, INST_PORT_PREFIXED: True }, desc: "AHB master port — Ethernet MAC DMA engine for TX/RX packet buffer access" }
 
     # RTC Clock
     - { name: rtc_clk, type: wire, direction: in, params: { WIDTH: 1 }, desc: "RTC reference clock for IEEE 1588 PTP timestamping" }
