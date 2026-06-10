@@ -1,0 +1,38 @@
+# Makefile.patched -- run the ha1588_apb cocotb suite against the LOCAL
+# ha1588_patches/ copies of tsu.v and ptp_parser.v (the SFD-lock fix), instead
+# of the read-only OpenCores IP copies the stock Makefile compiles. The
+# production flists (flist/ha1588_apb.flist etc.) already point at these local
+# copies; this override gives the cocotb env the same view for regression.
+#
+# Usage:
+#   source ../../set_env.sh
+#   make -f Makefile.patched
+#   make -f Makefile.patched TESTCASE=test_tsu_rx_l2_ptp_sync
+
+TOPLEVEL_LANG = verilog
+SIM ?= vcs
+
+HA1588_IP_DIR   ?= /research/AAA/ip_library/OpenCores-HA1588
+HA1588_RTL       = $(HA1588_IP_DIR)/rtl
+PATCH_DIR        = $(CURDIR)/../../src/rtl/ha1588_patches
+
+COMPILE_ARGS += +incdir+$(HA1588_RTL)/tsu
+COMPILE_ARGS += -sverilog
+
+VERILOG_SOURCES  = $(CURDIR)/tb_ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/apb_to_wb.v
+VERILOG_SOURCES += $(HA1588_RTL)/bus/wishbone/wb_slv_wrapper.v
+VERILOG_SOURCES += $(HA1588_RTL)/top/ha1588.v
+VERILOG_SOURCES += $(HA1588_RTL)/reg/reg.v
+VERILOG_SOURCES += $(HA1588_RTL)/rtc/rtc.v
+# --- SFD-lock patched copies (was $(HA1588_RTL)/tsu/{tsu,ptp_parser}.v) ---
+VERILOG_SOURCES += $(PATCH_DIR)/tsu.v
+VERILOG_SOURCES += $(PATCH_DIR)/ptp_parser.v
+# --------------------------------------------------------------------------
+VERILOG_SOURCES += $(PATCH_DIR)/ptp_queue.v
+
+TOPLEVEL = tb_ha1588_apb
+MODULE   = test_ha1588_apb
+
+include $(shell cocotb-config --makefiles)/Makefile.sim

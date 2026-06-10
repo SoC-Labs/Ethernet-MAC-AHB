@@ -32,7 +32,7 @@ ${ETHMAC_AHB_HOME}/src/rtl/asic/ethmac_sram.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/rtc.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_parser.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ptp_queue.v
-${HA1588_IP_DIR}/rtl/tsu/tsu.v
+${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/tsu.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/reg.v
 ${ETHMAC_AHB_HOME}/src/rtl/ha1588_patches/ha1588.v
 ${HA1588_IP_DIR}/rtl/bus/wishbone/wb_slv_wrapper.v

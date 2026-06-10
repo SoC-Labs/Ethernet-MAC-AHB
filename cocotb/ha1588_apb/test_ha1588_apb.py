@@ -30,7 +30,7 @@ import random
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, ClockCycles, Timer, FallingEdge
+from cocotb.triggers import RisingEdge, ClockCycles, Timer, FallingEdge, Event
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +300,45 @@ def build_l2_ptp_sync_frame(seq_id=1, src_mac=None, dst_mac=None):
     return frame
 
 
+def build_l2_ptp_sync_frame_pre(npre, seq_id=1, src_mac=None, dst_mac=None):
+    """Build an L2 PTP Sync frame with a CHOSEN preamble length.
+
+    Identical payload to build_l2_ptp_sync_frame() but with `npre` preamble
+    bytes (0x55) followed by exactly one SFD byte (0xD5). The standard Ethernet
+    preamble is 7 bytes + SFD (npre=7); shorter values model the LAN8720 RMII
+    CRS_DV-derived preamble seen on silicon. NOTE: the MAC normally strips the
+    preamble+SFD before presenting bytes to the TSU on GMII; this frame keeps
+    them so the GMII-level injector reproduces exactly what the stock tsu.v sees
+    (it anchors word phase to the FIRST gmii_ctrl-valid byte, with no SFD lock).
+    """
+    if dst_mac is None:
+        dst_mac = [0x01, 0x1B, 0x19, 0x00, 0x00, 0x00]
+    if src_mac is None:
+        src_mac = [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E]
+    frame = []
+    frame += [0x55] * npre + [0xD5]  # Preamble (npre bytes) + SFD
+    frame += dst_mac + src_mac
+    frame += [0x88, 0xF7]  # EtherType = PTP
+    frame.append(0x00)  # transportSpecific=0, messageType=0 (Sync)
+    frame.append(0x02)  # versionPTP=2
+    frame += [0x00, 0x2C]  # messageLength=44
+    frame.append(0x00)  # domainNumber
+    frame.append(0x00)  # reserved
+    frame += [0x00, 0x00]  # flags
+    frame += [0x00] * 8  # correctionField
+    frame += [0x00] * 4  # reserved
+    frame += [0x00, 0x1A, 0x2B, 0xFF, 0xFE, 0x3C, 0x4D, 0x5E]  # clockIdentity
+    frame += [0x00, 0x01]  # portNumber
+    frame += [(seq_id >> 8) & 0xFF, seq_id & 0xFF]  # sequenceId
+    frame += [0x00, 0x00]  # controlField + logMessageInterval
+    frame += [0x00] * 10  # originTimestamp
+    payload_len = len(frame) - (npre + 1)
+    if payload_len < 60:
+        frame += [0x00] * (60 - payload_len)
+    frame += [0x00, 0x00, 0x00, 0x00]  # FCS placeholder
+    return frame
+
+
 def build_l2_ptp_vlan_frame(seq_id=1, double_tag=False):
     """Build an L2 PTP Sync frame with VLAN tag(s)."""
     dst_mac = [0x01, 0x1B, 0x19, 0x00, 0x00, 0x00]
@@ -402,6 +441,66 @@ async def drive_gmii_frame(dut, frame_bytes, rx=True, giga_mode=True):
             ctrl_sig.value = 1
             data_sig.value = (byte >> 4) & 0x0F
             await RisingEdge(clk_sig)
+
+    ctrl_sig.value = 0
+    data_sig.value = 0
+    for _ in range(12):
+        await RisingEdge(clk_sig)
+
+
+async def drive_gmii_frame_mii_phase(dut, frame_bytes, rx=True, odd_phase=False):
+    """Drive a frame onto the GMII RX/TX interface in MII NIBBLE mode (4-bit,
+    low-nibble-first), optionally with a ONE-NIBBLE phase offset.
+
+    This is the faithful unit-level reproduction of the rmii_to_mii silicon
+    condition (Phase-1 Recipe A1). The TSU's `nibble_h` (tsu.v:45-51) toggles on
+    every gmii_ctrl-asserted gmii_clk and is NOT reset between frames; correct
+    byte pairing requires nibble_h==0 on the frame's FIRST nibble.
+
+      odd_phase=False (EVEN/aligned): drive the frame's nibbles directly,
+        low-nibble-first, exactly like drive_gmii_frame(giga_mode=False). The
+        TSU pairs (low0,high0)=byte0 -> the SFD 0xD5 reconstructs as 0xD5.
+
+      odd_phase=True (ODD/misaligned): prepend exactly ONE extra
+        gmii_ctrl-asserted nibble (0x5, indistinguishable from preamble) BEFORE
+        the first real nibble. The TSU now pairs (stray, low0)/(high0, low1)/...
+        so every byte is nibble-swapped across boundaries; the SFD 0x5 then 0xD
+        split across two assembled bytes and int_gmii_data NEVER equals 0xD5.
+        This is EXACTLY what rmii_to_mii's di-bit-pair carrier-sense lock does on
+        silicon when the CRS_DV phase leaves the byte stream nibble-misaligned.
+
+    The byte-level #1 SFD fix (tsu.v:301 sfd_byte = int_gmii_data==0xd5) WILL
+    fire in the EVEN case and WILL NOT fire in the ODD case -> RX FIFO enqueues
+    for EVEN, stays empty for ODD. That FAIL/PASS pair reproduces the t2=0
+    silicon symptom against the current byte-level-patched tsu.v.
+    """
+    if rx:
+        clk_sig = dut.rx_gmii_clk
+        ctrl_sig = dut.rx_gmii_ctrl
+        data_sig = dut.rx_gmii_data
+        mode_sig = dut.rx_giga_mode
+    else:
+        clk_sig = dut.tx_gmii_clk
+        ctrl_sig = dut.tx_gmii_ctrl
+        data_sig = dut.tx_gmii_data
+        mode_sig = dut.tx_giga_mode
+
+    mode_sig.value = 0  # MII nibble mode
+
+    if odd_phase:
+        # Prepend exactly ONE stray gmii_ctrl-asserted nibble (0x5) so the total
+        # asserted-nibble count before SFD is ODD -> nibble pairing offset by 1.
+        ctrl_sig.value = 1
+        data_sig.value = 0x5
+        await RisingEdge(clk_sig)
+
+    for byte in frame_bytes:
+        ctrl_sig.value = 1
+        data_sig.value = byte & 0x0F            # low nibble first (wire order)
+        await RisingEdge(clk_sig)
+        ctrl_sig.value = 1
+        data_sig.value = (byte >> 4) & 0x0F     # then high nibble
+        await RisingEdge(clk_sig)
 
     ctrl_sig.value = 0
     data_sig.value = 0
@@ -850,6 +949,341 @@ async def test_tsu_rx_l2_ptp_sync(dut):
     await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_READ_QUEUE)
     await ClockCycles(dut.pclk, 10)
     await tb.reg_write(REG_TSU_RXCTRL, 0)
+
+
+# ---------------------------------------------------------------------------
+# SFD-LOCK / PREAMBLE-LENGTH ORACLE
+# ---------------------------------------------------------------------------
+# Reproduces the HARDWARE-confirmed bug: the stock OpenCores HA1588 tsu.v does
+# NOT lock to the 0xD5 SFD (tsu.v ~line 190 "TODO: check frame start
+# delimiter"). It anchors byte/word phase (int_bcnt) to the FIRST gmii_ctrl-
+# valid byte (tsu.v ~line 261 "clear on sop"), and ptp_parser.v checks the
+# EtherType (0x88f7) at a HARD-CODED int_cnt==4 (ptp_parser.v ~line 176). With
+# the standard 7-preamble+SFD (8 bytes = 2 words) the EtherType word lands at
+# int_cnt==4 and is captured; a SHORTER preamble shifts the EtherType off
+# int_cnt==4 so ptp_found never asserts and the RX FIFO is never written
+# (depth stays 0, t2=0) -- exactly the LAN8720 RMII RX silicon failure.
+#
+# This oracle drives the FULL tsu -> ptp_parser -> ptp_queue path and reads
+# back ONLY via the STAT depth + DATA timestamp registers (the same APB path
+# firmware uses). It asserts BOTH:
+#   CASE A (npre=7): depth>0 AND nonzero timestamp  (regression guard -- a
+#                    broken FIFO write, e.g. the failed SFD-lock patch that
+#                    misaligned int_eop_d1, would make THIS fail).
+#   CASE B (npre=4): depth==0                       (the stock bug repro).
+# Run on STOCK tsu.v (make) to prove the bug; on patched tsu.v
+# (make -f Makefile.patched) a real fix must keep A passing AND flip B to
+# depth>0.
+
+# Known nonzero RTC seed loaded via SET_TIME (direct time_ld write). We seed
+# rather than rely on free-running period accumulation: in this cocotb/VCS env
+# the period accumulator does NOT advance (test_rtc_ptp_output fails, ns stays
+# 0) but the direct SET_TIME load DOES work (test_rtc_time_load passes). Seeding
+# guarantees the captured tsu_time_stamp = {sec[47:0], ns[31:0]} is nonzero so
+# the "timestamp readable" half of the oracle is exercised independent of the
+# period-accumulation env bug.
+RTC_SEED_SEC_L = 0x00000064      # 100 s  -> appears in RXDATA1 (ts[63:32])
+RTC_SEED_NSC_H = 0x1DCD6500      # 5e8 ns -> appears in RXDATA2 (ts[31:0])
+
+
+async def _seed_rtc_time(tb, dut):
+    """Load a known nonzero time into the RTC via SET_TIME (time_ld).
+
+    First DEFINE the frequency-adjustment path (ADJ_PERIOD=0, ADJ_NUM=0 +
+    SET_ADJ): in pure sim reg.v has no reset so adj_cnt/period_adj start X,
+    which corrupts the rtc.v accumulator to X one rtc_clk after SET_TIME
+    deasserts (observed: time_acc_30n_08f -> all-X) and the captured timestamp
+    reads back 0. Loading the adjustment registers flushes that X so the
+    accumulator stays defined and the SET_TIME seed survives long enough to be
+    captured. (This X is the documented reg.v-no-reset sim artifact; ASIC
+    xprop sign-off is the formal flow, not this sim.)"""
+    await tb.reg_write(REG_ADJ_PERIOD_H, 0x00000000)
+    await tb.reg_write(REG_ADJ_PERIOD_L, 0x00000000)
+    await tb.reg_write(REG_ADJ_NUM, 0x00000000)
+    await tb.reg_write(REG_RTC_CTRL, RTC_CTRL_SET_ADJ)
+    await ClockCycles(dut.pclk, 20)
+    await tb.reg_write(REG_RTC_CTRL, 0)
+    await ClockCycles(dut.pclk, 20)
+
+    await tb.reg_write(REG_TIME_SEC_H, 0x00000000)
+    await tb.reg_write(REG_TIME_SEC_L, RTC_SEED_SEC_L)
+    await tb.reg_write(REG_TIME_NSC_H, RTC_SEED_NSC_H)
+    await tb.reg_write(REG_TIME_NSC_L, 0x00000000)
+    await tb.reg_write(REG_RTC_CTRL, RTC_CTRL_SET_TIME)
+    await ClockCycles(dut.pclk, 20)
+    await tb.reg_write(REG_RTC_CTRL, 0)
+    await ClockCycles(dut.pclk, 50)
+
+
+# Reference word distance from the int_sop_d1 word to the int_eop_d1 pulse
+# (inclusive of the SOP word), per PREAMBLE LENGTH, for the L2 PTP Sync frame
+# this oracle drives. Measured from VCD:
+#   npre=7 (CASE A): STOCK and a CORRECT fix -> 17.   The failed lookahead WIP
+#                    -> 16 (one valid word LESS).  This off-by-one IS the
+#                    int_eop_d1<->data/SOP misalignment that broke BOTH TSUs on
+#                    silicon: the WIP delayed the data/SOP stream by one extra
+#                    valid word but left int_eop_d1 a plain 1-cycle delay, so the
+#                    int_eop_d1 pulse fell one valid word early relative to the
+#                    parser-feed stream.  The FIFO-DEPTH check is structurally
+#                    BLIND to this (ptp_found is a held level with large slack in
+#                    a single-frame sim), so this whitebox count is the check
+#                    that genuinely catches the regression.
+#   npre=4 (CASE B): a 3-byte-shorter preamble is ~1 word shorter, so the
+#                    correct (stock-aligned, SFD-locked-fix) value is 16. The WIP
+#                    is ALSO 16 here, so CASE B alone cannot distinguish -- the
+#                    npre=7 check is the load-bearing WIP-catcher; the CASE B
+#                    check guards against a NEW collapse beyond the legitimate
+#                    length difference.
+# A correct fix preserves stock _d1 latency and therefore preserves these counts.
+SOP_TO_EOP_WORDS_REF = {7: 17, 4: 16}
+SOP_TO_EOP_WORDS_STOCK = SOP_TO_EOP_WORDS_REF[7]  # CASE A reference (npre=7)
+
+
+def _rx_tsu(dut):
+    """Resolve the RX TSU instance handle (whitebox alignment probe)."""
+    return dut.u_dut.u_ha1588.u_rx_tsu
+
+
+async def _monitor_sop_to_eop_words(dut, result, stop):
+    """Whitebox alignment monitor (background coroutine).
+
+    Sampling on rx_gmii_clk, count the int_valid_d1 pulses from the int_sop_d1
+    word up to (and triggering on) the int_eop_d1 pulse, and record the count
+    of the FIRST such frame into result['words']. This directly checks the
+    int_eop_d1 <-> data/SOP relative latency the FIFO-write equation depends on
+    (q_wr_en = ptp_found && int_eop_d1): a misaligned int_eop_d1 changes this
+    count, catching the silicon-breaking regression class the depth check misses.
+    """
+    rx = _rx_tsu(dut)
+    prev_v = 0
+    prev_e = 0
+    counting = False
+    cnt = 0
+    while not stop.is_set():
+        await RisingEdge(dut.rx_gmii_clk)
+        # read signals (X -> treat as 0)
+        def b(sig):
+            try:
+                return int(sig.value)
+            except Exception:
+                return 0
+        v = b(rx.int_valid_d1)
+        s = b(rx.int_sop_d1)
+        e = b(rx.int_eop_d1)
+        v_rise = v == 1 and prev_v == 0
+        e_rise = e == 1 and prev_e == 0
+        if v_rise and s == 1:
+            counting = True
+            cnt = 1            # count the SOP word as word 1
+        elif v_rise and counting:
+            cnt += 1
+        if e_rise and counting and result.get('words') is None:
+            result['words'] = cnt
+            counting = False
+        prev_v = v
+        prev_e = e
+
+
+async def _inject_rx_sync_and_read(tb, dut, npre, seq_id):
+    """Reset+arm the RX TSU, inject one L2 PTP Sync with `npre` preamble bytes,
+    and read back (depth, ts0, ts1, ts2, d3) purely through the APB register
+    path. Returns a dict. Does NOT assert -- the caller applies the oracle."""
+    # Arm: accept Sync (msgType 0x0) via msgid mask in RXSTAT[31:24], then pulse
+    # the queue reset so depth starts at a known 0.
+    await tb.reg_write(REG_TSU_RXSTAT, 0x01000000)
+    await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_RESET)
+    await ClockCycles(dut.pclk, 20)
+    await tb.reg_write(REG_TSU_RXCTRL, 0)
+    await ClockCycles(dut.pclk, 20)
+
+    # Sanity: depth must be 0 before injection (clean arm).
+    pre_stat = await tb.reg_read(REG_TSU_RXSTAT)
+    pre_depth = pre_stat & 0xFF
+
+    dut.rx_giga_mode.value = 1
+    frame = build_l2_ptp_sync_frame_pre(npre, seq_id=seq_id)
+    await drive_gmii_frame(dut, frame, rx=True, giga_mode=True)
+    await ClockCycles(dut.pclk, 200)
+
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    depth = stat & 0xFF
+    ts0 = await tb.reg_read(REG_TSU_RXDATA0)
+    ts1 = await tb.reg_read(REG_TSU_RXDATA1)
+    ts2 = await tb.reg_read(REG_TSU_RXDATA2)
+    d3 = await tb.reg_read(REG_TSU_RXDATA3)
+    return {
+        "npre": npre,
+        "pre_depth": pre_depth,
+        "depth": depth,
+        "ts0": ts0, "ts1": ts1, "ts2": ts2, "d3": d3,
+        "msg_id": (d3 >> 28) & 0xF,
+        "seq_id": d3 & 0xFFFF,
+    }
+
+
+@cocotb.test()
+async def test_tsu_rx_preamble_sfd_oracle(dut):
+    """3.X: SFD-lock / preamble-length oracle (RX FIFO via STAT+DATA regs).
+
+    CASE A npre=7 (standard): EXPECT depth>0 + nonzero timestamp.
+    CASE B npre=4 (short):    EXPECT depth==0 on STOCK (the silicon bug).
+    """
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)  # nonzero RTC so captured timestamp != 0
+
+    # Start the whitebox int_eop_d1<->data alignment monitor BEFORE CASE A so it
+    # captures the SOP..EOP word distance of the standard-preamble frame. This is
+    # the check that catches the int_eop_d1-misalignment regression (the failed
+    # SFD-lock WIP that broke both TSUs on silicon) which the FIFO-depth check
+    # alone cannot see.
+    align = {'words': None}
+    align_stop = Event()
+    align_task = cocotb.start_soon(
+        _monitor_sop_to_eop_words(dut, align, align_stop))
+
+    # ---- CASE A: standard 7-byte preamble ----
+    a = await _inject_rx_sync_and_read(tb, dut, npre=7, seq_id=42)
+    align_stop.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    ts_nonzero_a = (a["ts0"] | a["ts1"] | a["ts2"]) != 0
+    tb.log.info(
+        "ORACLE CASE_A npre=7: pre_depth=%d depth=%d ts=%08x_%08x_%08x "
+        "msgId=%d seqId=%d ts_nonzero=%s",
+        a["pre_depth"], a["depth"], a["ts2"], a["ts1"], a["ts0"],
+        a["msg_id"], a["seq_id"], ts_nonzero_a,
+    )
+
+    # ---- CASE B: short 4-byte preamble (same payload) ----
+    b = await _inject_rx_sync_and_read(tb, dut, npre=4, seq_id=43)
+    ts_nonzero_b = (b["ts0"] | b["ts1"] | b["ts2"]) != 0
+    tb.log.info(
+        "ORACLE CASE_B npre=4: pre_depth=%d depth=%d ts=%08x_%08x_%08x "
+        "msgId=%d seqId=%d ts_nonzero=%s",
+        b["pre_depth"], b["depth"], b["ts2"], b["ts1"], b["ts0"],
+        b["msg_id"], b["seq_id"], ts_nonzero_b,
+    )
+
+    # Summary line for the oracle harness / report.
+    tb.log.info(
+        "ORACLE SUMMARY: CASE_A(npre=7) depth=%d seqId=%d (expect depth>0) ; "
+        "CASE_B(npre=4) depth=%d (expect depth==0 on STOCK)",
+        a["depth"], a["seq_id"], b["depth"],
+    )
+
+    # NOTE on the timestamp VALUE: in this pure 4-state VCS/cocotb env the RTC
+    # time path (rtc.v time_acc) is X-corrupted because reg.v/rtc.v have no
+    # reset (the documented sim artifact -- see Makefile; ASIC xprop sign-off
+    # is the formal flow). So the captured tsu_time_stamp field reads back 0
+    # here and the timestamp-nonzero check is INFORMATIONAL only, NOT a verdict
+    # gate -- gating on it would fail the oracle for the wrong reason. The
+    # trustworthy, firmware-equivalent signals are (1) the FIFO DEPTH
+    # (RXSTAT & 0xFF -- exactly what firmware polls to know a Sync was
+    # timestamped+enqueued) and (2) the FIFO ENTRY msgId/seqId from ptp_infor
+    # (NOT RTC-derived; reads back correctly) -- these catch a broken FIFO
+    # write (e.g. the failed SFD-lock patch that misaligned int_eop_d1).
+    if not ts_nonzero_a:
+        tb.log.warning(
+            "CASE_A timestamp reads 0 -- expected in this sim (reg.v/rtc.v "
+            "no-reset X-prop on the RTC accumulator); verdict uses DEPTH+entry")
+
+    # ---- Whitebox alignment verdict (catches the int_eop_d1-misalignment
+    #      regression that the FIFO-depth check is structurally blind to) ----
+    tb.log.info(
+        "ORACLE ALIGN: CASE_A SOP->EOP int_valid_d1 words=%s (stock-correct=%d)",
+        align["words"], SOP_TO_EOP_WORDS_STOCK)
+    assert align["words"] == SOP_TO_EOP_WORDS_STOCK, (
+        f"int_eop_d1 MISALIGNED: CASE_A SOP->EOP word distance="
+        f"{align['words']} but stock-correct={SOP_TO_EOP_WORDS_STOCK}. The "
+        f"int_eop_d1 pulse is not phase-aligned with the int_data/int_sop "
+        f"parser-feed stream -- this is the exact regression that made "
+        f"q_wr_en=ptp_found&&int_eop_d1 miss and dropped BOTH TSUs to depth 0 "
+        f"on silicon (the failed tsu.v.sfd-lock-wip). A correct fix MUST keep "
+        f"all five int_*_d1 signals at stock latency, preserving this count.")
+
+    # ---- Oracle assertions (DEPTH + ENTRY are the load-bearing checks) ----
+    assert a["pre_depth"] == 0, (
+        f"arm failed: depth={a['pre_depth']} before CASE_A injection")
+    # Regression guard: standard preamble MUST enqueue, with the correct entry.
+    # (A broken FIFO write -- like the failed SFD-lock patch that misaligned
+    #  int_eop_d1 from int_data/int_sop -- would make THIS fail: either no
+    #  enqueue (depth 0) or a garbage entry.)
+    assert a["depth"] >= 1, (
+        f"CASE_A (npre=7) FAILED to enqueue: depth={a['depth']} -- the "
+        f"standard-preamble baseline must capture; a broken FIFO write "
+        f"(e.g. misaligned int_eop_d1) breaks this regression guard")
+    assert a["msg_id"] == 0 and a["seq_id"] == 42, (
+        f"CASE_A entry mismatch: msgId={a['msg_id']} seqId={a['seq_id']} "
+        f"(expect msgId=0 Sync, seqId=42) -- a broken FIFO write would "
+        f"enqueue a corrupted/misaligned entry here")
+
+    # Bug repro: short preamble MUST NOT enqueue on STOCK RTL.
+    assert b["pre_depth"] == 0, (
+        f"arm failed: depth={b['pre_depth']} before CASE_B injection")
+    assert b["depth"] == 0, (
+        f"CASE_B (npre=4) UNEXPECTEDLY enqueued: depth={b['depth']} -- on "
+        f"STOCK tsu.v this MUST stay 0 (the silicon bug). If this fires on "
+        f"STOCK RTL the oracle does not model the failure; if it fires on a "
+        f"PATCHED tsu.v that is the FIX working (enable *_fixed variant).")
+
+
+@cocotb.test(skip=True)
+async def test_tsu_rx_preamble_sfd_oracle_fixed(dut):
+    """Same oracle as above but with CASE B EXPECTING capture -- run this
+    explicitly by name against a PATCHED tsu.v to validate an SFD-lock FIX: a
+    correct fix keeps CASE A passing AND makes CASE B (short preamble) ALSO
+    enqueue, with BOTH frames keeping the stock int_eop_d1<->data alignment
+    (SOP->EOP word distance == SOP_TO_EOP_WORDS_STOCK). On STOCK RTL CASE B does
+    not enqueue, so this is skipped by default."""
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)
+
+    # CASE A with alignment monitor.
+    align_a = {'words': None}
+    stop_a = Event()
+    task_a = cocotb.start_soon(_monitor_sop_to_eop_words(dut, align_a, stop_a))
+    a = await _inject_rx_sync_and_read(tb, dut, npre=7, seq_id=42)
+    stop_a.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    ts_nonzero_a = (a["ts0"] | a["ts1"] | a["ts2"]) != 0
+    tb.log.info("FIXED CASE_A npre=7: depth=%d ts_nonzero=%s seqId=%d align=%s",
+                a["depth"], ts_nonzero_a, a["seq_id"], align_a["words"])
+
+    # CASE B with alignment monitor.
+    align_b = {'words': None}
+    stop_b = Event()
+    task_b = cocotb.start_soon(_monitor_sop_to_eop_words(dut, align_b, stop_b))
+    b = await _inject_rx_sync_and_read(tb, dut, npre=4, seq_id=43)
+    stop_b.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    ts_nonzero_b = (b["ts0"] | b["ts1"] | b["ts2"]) != 0
+    tb.log.info("FIXED CASE_B npre=4: depth=%d ts_nonzero=%s seqId=%d align=%s",
+                b["depth"], ts_nonzero_b, b["seq_id"], align_b["words"])
+
+    # DEPTH + ENTRY are the load-bearing functional checks (timestamp value is X
+    # in this sim per the reg.v/rtc.v no-reset artifact -- see the main oracle).
+    assert a["depth"] >= 1, "FIX regressed CASE_A baseline (no enqueue)"
+    assert a["msg_id"] == 0 and a["seq_id"] == 42, "FIX corrupted CASE_A entry"
+    assert b["depth"] >= 1, (
+        f"FIX did NOT capture short-preamble Sync: depth={b['depth']}")
+    assert b["msg_id"] == 0 and b["seq_id"] == 43, (
+        f"FIX captured wrong entry: msgId={b['msg_id']} seqId={b['seq_id']}")
+
+    # ALIGNMENT: a correct fix must NOT re-time int_eop_d1 relative to the
+    # int_data/int_sop stream -- each preamble length must keep its stock-aligned
+    # SOP->EOP word distance (npre=7 -> 17, npre=4 -> 16). This is what rejects
+    # the failed lookahead WIP (which collapses npre=7 to 16).
+    assert align_a["words"] == SOP_TO_EOP_WORDS_REF[7], (
+        f"FIX broke CASE_A int_eop_d1 alignment: words={align_a['words']} "
+        f"!= stock {SOP_TO_EOP_WORDS_REF[7]} (npre=7)")
+    assert align_b["words"] == SOP_TO_EOP_WORDS_REF[4], (
+        f"FIX broke CASE_B int_eop_d1 alignment: words={align_b['words']} "
+        f"!= stock-aligned {SOP_TO_EOP_WORDS_REF[4]} (npre=4)")
 
 
 @cocotb.test()
@@ -1433,3 +1867,257 @@ async def test_mixed_functional(dut):
     assert sec_l >= 16, "Time should be at least 16 seconds"
 
     tb.log.info("Mixed functional test PASSED")
+
+
+# ===========================================================================
+# NIBBLE-PHASE ORACLE (rmii_to_mii silicon reproduction, MII-mode full path)
+# ===========================================================================
+# Reproduces the DEEPEST-layer silicon bug confirmed on the PYNQ-Z2 nanoSoC:
+# the RX TSU never timestamps incoming Sync (t2=0, RX FIFO depth=0) because
+# rmii_to_mii's RX di-bit-pair carrier-sense lock (rmii_to_mii.v:223-235) leaves
+# the TSU's reconstructed BYTE stream NIBBLE-MISALIGNED. The 0x55 preamble
+# nibbles are all 0x5 so the misalignment is INVISIBLE during preamble; at the
+# SFD (0xD5) a one-nibble pairing offset SPLITS 0xD5 across two assembled bytes
+# so int_gmii_data NEVER equals 0xD5 -> the byte-level #1 fix
+# (tsu.v:301 sfd_byte) never fires -> SFD-lock never triggers -> int_bcnt never
+# re-anchored -> ptp_found never asserts -> RX FIFO never written -> t2=0.
+#
+# This oracle drives the FULL tsu -> ptp_parser -> ptp_queue path in MII NIBBLE
+# mode (the same gearbox the silicon RX uses, giga_mode=0) and reads back ONLY
+# via the STAT depth + DATA entry registers (the firmware path). The ONLY
+# difference between the two cases is the NIBBLE PHASE (same npre=7 frame, same
+# payload), so this isolates the nibble misalignment rmii_to_mii induces -- it
+# does NOT vary preamble length (that is the separate preamble_sfd oracle).
+#
+#   CASE EVEN: byte-aligned MII Sync (nibble_h==0 on first nibble) -> 0xD5
+#              reconstructs, sfd_byte fires, RX FIFO ENQUEUES (depth>0). SANITY.
+#   CASE ODD : the SAME Sync with a ONE-NIBBLE phase offset (one stray leading
+#              0x5 nibble) -> 0xD5 splits across the byte boundary, sfd_byte
+#              never fires -> RX FIFO does NOT enqueue (depth==0). THE BUG REPRO.
+#
+# Run against TSU_VARIANT=patched (the deployed byte-level #1 fix): EVEN must
+# capture, ODD must NOT. That FAIL/PASS pair is the faithful silicon symptom and
+# the red-to-green target for the nibble-level fix (which must flip ODD to
+# depth>0 while keeping EVEN AND the int_*_d1 SOP->EOP alignment).
+
+
+async def _inject_rx_sync_mii_phase_and_read(tb, dut, odd_phase, seq_id):
+    """Reset+arm the RX TSU, inject one standard (npre=7) L2 PTP Sync in MII
+    NIBBLE mode with the chosen nibble PHASE, and read back (depth, ts, entry)
+    purely through the APB register path. Returns a dict. Does NOT assert."""
+    await tb.reg_write(REG_TSU_RXSTAT, 0x01000000)
+    await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_RESET)
+    await ClockCycles(dut.pclk, 20)
+    await tb.reg_write(REG_TSU_RXCTRL, 0)
+    await ClockCycles(dut.pclk, 20)
+
+    pre_stat = await tb.reg_read(REG_TSU_RXSTAT)
+    pre_depth = pre_stat & 0xFF
+
+    frame = build_l2_ptp_sync_frame_pre(npre=7, seq_id=seq_id)
+    await drive_gmii_frame_mii_phase(dut, frame, rx=True, odd_phase=odd_phase)
+    await ClockCycles(dut.pclk, 400)  # MII (half byte-rate) takes longer
+
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    depth = stat & 0xFF
+    ts0 = await tb.reg_read(REG_TSU_RXDATA0)
+    ts1 = await tb.reg_read(REG_TSU_RXDATA1)
+    ts2 = await tb.reg_read(REG_TSU_RXDATA2)
+    d3 = await tb.reg_read(REG_TSU_RXDATA3)
+    return {
+        "odd_phase": odd_phase,
+        "pre_depth": pre_depth,
+        "depth": depth,
+        "ts0": ts0, "ts1": ts1, "ts2": ts2, "d3": d3,
+        "msg_id": (d3 >> 28) & 0xF,
+        "seq_id": d3 & 0xFFFF,
+    }
+
+
+@cocotb.test()
+async def test_tsu_rx_nibble_phase_oracle(dut):
+    """3.Y: NIBBLE-PHASE oracle (rmii_to_mii silicon repro, MII full path).
+
+    Same Sync frame (npre=7), MII nibble mode, ONLY the nibble PHASE differs:
+      CASE EVEN (byte-aligned)        : EXPECT depth>0 (RX FIFO enqueues).
+      CASE ODD  (one-nibble offset)   : EXPECT depth==0 (0xD5 splits, the bug).
+
+    Against TSU_VARIANT=patched (byte-level #1 fix) this REPRODUCES the silicon
+    t2=0 symptom: the byte-level sfd_byte detector cannot see a split 0xD5, so
+    the ODD/misaligned RX never timestamps. A correct NIBBLE-level fix must flip
+    ODD to depth>0 (run test_tsu_rx_nibble_phase_oracle_fixed)."""
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)  # nonzero RTC so any captured ts != 0
+
+    # ---- CASE EVEN: byte-aligned MII (nibble phase 0) ----
+    align = {'words': None}
+    align_stop = Event()
+    align_task = cocotb.start_soon(
+        _monitor_sop_to_eop_words(dut, align, align_stop))
+    even = await _inject_rx_sync_mii_phase_and_read(
+        tb, dut, odd_phase=False, seq_id=42)
+    align_stop.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    ts_nonzero_even = (even["ts0"] | even["ts1"] | even["ts2"]) != 0
+    tb.log.info(
+        "ORACLE CASE_EVEN (byte-aligned MII): pre_depth=%d depth=%d "
+        "ts=%08x_%08x_%08x msgId=%d seqId=%d ts_nonzero=%s align_words=%s",
+        even["pre_depth"], even["depth"], even["ts2"], even["ts1"], even["ts0"],
+        even["msg_id"], even["seq_id"], ts_nonzero_even, align["words"])
+
+    # ---- CASE ODD: one-nibble phase offset (rmii_to_mii silicon condition) ----
+    odd = await _inject_rx_sync_mii_phase_and_read(
+        tb, dut, odd_phase=True, seq_id=43)
+    ts_nonzero_odd = (odd["ts0"] | odd["ts1"] | odd["ts2"]) != 0
+    tb.log.info(
+        "ORACLE CASE_ODD (one-nibble offset): pre_depth=%d depth=%d "
+        "ts=%08x_%08x_%08x msgId=%d seqId=%d ts_nonzero=%s",
+        odd["pre_depth"], odd["depth"], odd["ts2"], odd["ts1"], odd["ts0"],
+        odd["msg_id"], odd["seq_id"], ts_nonzero_odd)
+
+    tb.log.info(
+        "ORACLE SUMMARY (NIBBLE-PHASE): CASE_EVEN depth=%d seqId=%d "
+        "(expect depth>0) ; CASE_ODD depth=%d (expect depth==0 on byte-level "
+        "#1 fix == silicon t2=0)",
+        even["depth"], even["seq_id"], odd["depth"])
+
+    # Clean arm before each injection.
+    assert even["pre_depth"] == 0, (
+        f"arm failed: depth={even['pre_depth']} before CASE_EVEN injection")
+    assert odd["pre_depth"] == 0, (
+        f"arm failed: depth={odd['pre_depth']} before CASE_ODD injection")
+
+    # SANITY: byte-aligned MII MUST enqueue the right entry (proves the MII path
+    # + this driver work, and that ODD's failure is the PHASE, not the harness).
+    assert even["depth"] >= 1, (
+        f"CASE_EVEN (byte-aligned MII) FAILED to enqueue: depth={even['depth']} "
+        f"-- the aligned MII baseline must capture; if this fails the oracle "
+        f"harness is broken, not the phase")
+    assert even["msg_id"] == 0 and even["seq_id"] == 42, (
+        f"CASE_EVEN entry mismatch: msgId={even['msg_id']} seqId={even['seq_id']}"
+        f" (expect msgId=0 Sync, seqId=42)")
+
+    # Whitebox alignment of the EVEN baseline must match stock (catches any
+    # int_eop_d1 re-timing regression class -- same guard the preamble oracle
+    # uses). npre=7 MII byte-aligned -> SOP_TO_EOP_WORDS_REF[7].
+    assert align["words"] == SOP_TO_EOP_WORDS_REF[7], (
+        f"CASE_EVEN int_eop_d1 MISALIGNED: SOP->EOP words={align['words']} "
+        f"!= stock {SOP_TO_EOP_WORDS_REF[7]} (npre=7) -- the FIFO-write equation "
+        f"q_wr_en=ptp_found&&int_eop_d1 is mis-timed")
+
+    # THE BUG REPRO: a one-nibble phase offset must NOT enqueue against the
+    # byte-level #1 fix -- 0xD5 split across the byte boundary, sfd_byte never
+    # fires, exactly the rmii_to_mii silicon t2=0 condition.
+    assert odd["depth"] == 0, (
+        f"CASE_ODD (one-nibble offset) UNEXPECTEDLY enqueued: depth={odd['depth']}"
+        f" -- against the byte-level #1 fix this MUST stay 0 (the silicon bug). "
+        f"If it fires here the oracle does not model the nibble misalignment; if "
+        f"it fires on a NIBBLE-level-fixed tsu.v that is the FIX working "
+        f"(run test_tsu_rx_nibble_phase_oracle_fixed).")
+
+
+@cocotb.test(skip=True)
+async def test_tsu_rx_nibble_phase_oracle_fixed(dut):
+    """Same NIBBLE-PHASE oracle but with CASE ODD EXPECTING capture -- run this
+    explicitly by name against a NIBBLE-level-fixed tsu.v to validate the fix: a
+    correct fix keeps CASE EVEN passing AND makes CASE ODD (one-nibble offset)
+    ALSO enqueue, with BOTH keeping the stock int_eop_d1<->data alignment. On the
+    current byte-level-only fix CASE ODD does not enqueue, so this is skipped by
+    default."""
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)
+
+    align_e = {'words': None}
+    stop_e = Event()
+    task_e = cocotb.start_soon(_monitor_sop_to_eop_words(dut, align_e, stop_e))
+    even = await _inject_rx_sync_mii_phase_and_read(
+        tb, dut, odd_phase=False, seq_id=42)
+    stop_e.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    tb.log.info("FIXED CASE_EVEN: depth=%d seqId=%d align=%s",
+                even["depth"], even["seq_id"], align_e["words"])
+
+    align_o = {'words': None}
+    stop_o = Event()
+    task_o = cocotb.start_soon(_monitor_sop_to_eop_words(dut, align_o, stop_o))
+    odd = await _inject_rx_sync_mii_phase_and_read(
+        tb, dut, odd_phase=True, seq_id=43)
+    stop_o.set()
+    await ClockCycles(dut.rx_gmii_clk, 2)
+    tb.log.info("FIXED CASE_ODD: depth=%d seqId=%d align=%s",
+                odd["depth"], odd["seq_id"], align_o["words"])
+
+    assert even["depth"] >= 1, "FIX regressed CASE_EVEN baseline (no enqueue)"
+    assert even["msg_id"] == 0 and even["seq_id"] == 42, "FIX corrupted EVEN entry"
+    assert odd["depth"] >= 1, (
+        f"FIX did NOT capture one-nibble-offset Sync: depth={odd['depth']}")
+    assert odd["msg_id"] == 0 and odd["seq_id"] == 43, (
+        f"FIX captured wrong entry: msgId={odd['msg_id']} seqId={odd['seq_id']}")
+    assert align_e["words"] == SOP_TO_EOP_WORDS_REF[7], (
+        f"FIX broke CASE_EVEN int_eop_d1 alignment: words={align_e['words']}")
+    assert align_o["words"] == SOP_TO_EOP_WORDS_REF[7], (
+        f"FIX broke CASE_ODD int_eop_d1 alignment: words={align_o['words']}")
+
+
+@cocotb.test()
+async def test_tsu_rx_sticky_parity_blip(dut):
+    """3.Z: STICKY-PARITY oracle (silicon random-per-boot RX-TSU death repro).
+
+    The TSU's nibble_h free-runs: it toggles on every gmii_ctrl-asserted cycle
+    and is NEVER reset between frames. A SEPARATE prior carrier event with an
+    ODD nibble count (false carrier / runt / reset-deassert metastability)
+    flips its parity BETWEEN frames, and -- unlike the in-frame stray of the
+    nibble-phase oracle -- the next frame starts a FRESH gmii_ctrl assertion
+    with nibble_h=1: the byte-emit grid is now offset at the frame BOUNDARY,
+    skewing EOP/byte framing for every subsequent frame, forever (observed on
+    silicon: identical app+bitstream captures on one boot, depth=0 on the
+    next; PHY-loopback AND wire both dead once flipped).
+
+    A robust TSU must capture a CLEAN byte-aligned Sync even after such a
+    blip (fix: clear nibble_h while gmii_ctrl is low so every frame starts at
+    known parity). This test asserts capture: it FAILS on the unfixed tsu.v
+    (reproducing the silicon condition) and PASSES with the idle-clear fix."""
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)
+
+    # FALSE-CARRIER BLIP: exactly ONE ctrl-asserted nibble (odd count -> flips
+    # the free-running nibble_h), then idle. 0x5 is indistinguishable from
+    # preamble, as on a real 100BASE-TX false-carrier event.
+    await RisingEdge(dut.rx_gmii_clk)
+    dut.rx_gmii_ctrl.value = 1
+    dut.rx_gmii_data.value = 0x5
+    await RisingEdge(dut.rx_gmii_clk)
+    dut.rx_gmii_ctrl.value = 0
+    dut.rx_gmii_data.value = 0
+    for _ in range(16):
+        await RisingEdge(dut.rx_gmii_clk)
+
+    # CLEAN, byte-aligned 7-preamble Sync in a FRESH gmii_ctrl assertion.
+    res = await _inject_rx_sync_mii_phase_and_read(
+        tb, dut, odd_phase=False, seq_id=77)
+    tb.log.info(
+        "STICKY-PARITY: post-blip clean Sync: pre_depth=%d depth=%d msgId=%d "
+        "seqId=%d (expect depth>0 on a robust TSU)",
+        res["pre_depth"], res["depth"], res["msg_id"], res["seq_id"])
+
+    assert res["pre_depth"] == 0, (
+        f"arm failed: depth={res['pre_depth']} before post-blip injection")
+    assert res["depth"] >= 1, (
+        "STICKY-PARITY REPRO: a clean byte-aligned Sync after a prior "
+        f"odd-nibble carrier blip was NOT captured (depth={res['depth']}). "
+        "The free-running nibble_h was flipped by the blip and never "
+        "recovers -- the silicon random-per-boot t2=0 condition. Fix: clear "
+        "nibble_h while gmii_ctrl is low (idle) so every frame starts at "
+        "known parity.")
+    assert res["msg_id"] == 0 and res["seq_id"] == 77, (
+        f"post-blip entry mismatch: msgId={res['msg_id']} "
+        f"seqId={res['seq_id']} (expect Sync seqId=77)")
