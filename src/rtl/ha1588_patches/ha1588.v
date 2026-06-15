@@ -61,11 +61,13 @@ wire rx_q_rst, rx_q_clk;
 wire rx_q_rd_en;
 wire [  7:0] rx_q_ptp_msgid_mask;
 wire [  7:0] rx_q_stat;
+wire [  3:0] rx_q_wm;
 wire [127:0] rx_q_data;
 wire tx_q_rst, tx_q_clk;
 wire tx_q_rd_en;
 wire [  7:0] tx_q_ptp_msgid_mask;
 wire [  7:0] tx_q_stat;
+wire [  3:0] tx_q_wm;
 wire [127:0] tx_q_data;
 
 // PATCHED: Synchronise system rst into rtc_clk domain for the RTC.
@@ -140,12 +142,14 @@ rgs u_rgs
   .rx_q_rd_en_out(rx_q_rd_en),
   .rx_q_ptp_msgid_mask_out(rx_q_ptp_msgid_mask),
   .rx_q_stat_in(rx_q_stat),
+  .rx_q_wm_in(rx_q_wm),       // RX queue high-watermark (perf instrumentation)
   .rx_q_data_in(rx_q_data),
   .tx_q_rst_out(tx_q_rst),
   .tx_q_rd_clk_out(tx_q_clk),
   .tx_q_rd_en_out(tx_q_rd_en),
   .tx_q_ptp_msgid_mask_out(tx_q_ptp_msgid_mask),
   .tx_q_stat_in(tx_q_stat),
+  .tx_q_wm_in(tx_q_wm),       // TX queue high-watermark (perf instrumentation)
   .tx_q_data_in(tx_q_data)
 );
 
@@ -183,6 +187,7 @@ tsu u_rx_tsu
   .q_rd_clk(rx_q_clk),
   .q_rd_en(rx_q_rd_en),
   .q_rd_stat(rx_q_stat),
+  .q_rd_wm(rx_q_wm),
   .q_rd_data(rx_q_data)
 );
 
@@ -200,6 +205,7 @@ tsu u_tx_tsu
   .q_rd_clk(tx_q_clk),
   .q_rd_en(tx_q_rd_en),
   .q_rd_stat(tx_q_stat),
+  .q_rd_wm(tx_q_wm),
   .q_rd_data(tx_q_data)
 );
 

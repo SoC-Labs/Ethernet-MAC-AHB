@@ -36,6 +36,24 @@ Every ha1588 RTL file used by this project comes from this directory except
 See the header comment in each file for the full analysis (the `tsu.v` and
 `ptp_parser.v` headers carry detailed root-cause write-ups).
 
+## Perf instrumentation — ptp_queue high-watermark (M4)
+
+Beyond the defect fixes above, four of these files also carry a small
+perf-probe addition: a **high-watermark** on each timestamp queue (peak fill
+since reset), so firmware can detect how close a queue came to overflow.
+
+| File | Addition |
+|---|---|
+| `ptp_queue.v` | New `wrusedw_max[3:0]` output — running peak of `wrusedw` in the write (gmii) clock domain, saturated to `0xF` on `wrfull`, cleared on `aclr`. |
+| `tsu.v` | 2-FF synchronises the queue's `wrusedw_max` into the read/register clock domain (monotonic, so no destination max-hold) and exports it as `q_rd_wm[3:0]`. |
+| `ha1588.v` | Routes each TSU's `q_rd_wm` to the register block (`rx_q_wm_in` / `tx_q_wm_in`). |
+| `reg.v` | Exposes the watermark in a spare field of the existing queue-status regs: **`TSU_RXQUE_STATUS` (0x44) and `TSU_TXQUE_STATUS` (0x64), bits [11:8]** (`0xF` == the queue reached full). The depth byte [7:0] is unchanged. |
+
+Validated by `cocotb/ha1588_apb/test_tsu_rx_queue_high_watermark` (fill → peak,
+drain → holds, queue-reset → clears). It runs via `make -f Makefile.watermark`
+(which compiles the patched `ha1588.v`+`reg.v`); the default `Makefile.patched`
+skips it because it compiles the upstream `reg.v` without the watermark field.
+
 ## Ground rules for future edits
 
 - Never modify files under `$HA1588_IP_DIR` — copy the file here, fix it,

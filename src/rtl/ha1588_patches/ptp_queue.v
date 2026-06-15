@@ -24,7 +24,8 @@ module ptp_queue (
   output         rdempty,
   output [  3:0] rdusedw,
   output         wrfull,
-  output [  3:0] wrusedw
+  output [  3:0] wrusedw,
+  output [  3:0] wrusedw_max   // running peak fill since aclr (perf high-watermark)
 );
 
   // FIFO depth = 16, address width = 4
@@ -136,5 +137,23 @@ module ptp_queue (
 
   assign rdusedw = wr_bin_in_rd[ADDR_W-1:0] - rd_bin[ADDR_W-1:0];
   assign wrusedw = wr_bin[ADDR_W-1:0] - rd_bin_in_wr[ADDR_W-1:0];
+
+  //---------------------------------------------------------------
+  // High-watermark: running peak fill since aclr (perf instrumentation).
+  // Tracked in the WRITE clock domain — the write side is where overflow
+  // (wrfull) is known. wrusedw wraps to 0 at the 16-deep full point, so the
+  // full condition is saturated to 4'hF; the watermark therefore reads 0xF iff
+  // the queue ever reached full. Monotonic non-decreasing -> safe to 2-FF
+  // synchronise into the read/status domain at the point of use (it only ever
+  // changes on a new peak, so a sampler almost never sees a transition).
+  wire [ADDR_W-1:0] wr_occ = wrfull ? {ADDR_W{1'b1}} : wrusedw;
+  reg  [ADDR_W-1:0] wrusedw_max_r;
+  always @(posedge wrclk or posedge aclr) begin
+    if (aclr)
+      wrusedw_max_r <= {ADDR_W{1'b0}};
+    else if (wr_occ > wrusedw_max_r)
+      wrusedw_max_r <= wr_occ;
+  end
+  assign wrusedw_max = wrusedw_max_r;
 
 endmodule

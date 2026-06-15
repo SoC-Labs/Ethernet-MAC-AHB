@@ -38,7 +38,8 @@ module tsu (
     input         q_rd_clk,
     input         q_rd_en,
     output [  7:0] q_rd_stat,
-    output [127:0] q_rd_data  // null_16bit + timeStamp1s_48bit + timeStamp1ns_32bit + msgId_4bit + ckSum_12bit + seqId_16bit 
+    output [  3:0] q_rd_wm,    // queue high-watermark (peak fill since q_rst); perf instrumentation
+    output [127:0] q_rd_data  // null_16bit + timeStamp1s_48bit + timeStamp1ns_32bit + msgId_4bit + ckSum_12bit + seqId_16bit
 );
 
 // mii to gmii converter -- nibble-level SFD anchor (SoC Labs ha1588_patches).
@@ -589,6 +590,7 @@ wire q_wr_en = ptp_found && int_eop_d1;
 wire [127:0] q_wr_data = {16'd0, tsu_time_stamp, ptp_infor};  // 16+80+32 bit
 wire [3:0] q_wrusedw;
 wire [3:0] q_rdusedw;
+wire [3:0] q_wrusedw_max;   // declared BEFORE the instantiation (implicit 1-bit net otherwise)
 wire q_wr_full;
 wire q_rd_empty;
 
@@ -605,9 +607,31 @@ ptp_queue queue(
   .rdreq(q_rd_en && !q_rd_empty),  // read with underflow protection
   .q(q_rd_data),
   .rdempty(q_rd_empty),
-  .rdusedw(q_rdusedw)
+  .rdusedw(q_rdusedw),
+  .wrusedw_max(q_wrusedw_max)
 );
 
+// q_rd_stat is unchanged (the host's depth byte): [3:0] = read-side fill,
+// [7:4] hardwired 0 as before -> existing consumers that mask &0xFF still work.
 assign q_rd_stat = {4'd0, q_rdusedw};
+
+// High-watermark CDC: q_wrusedw_max is a monotonic peak in the gmii write clock
+// domain; 2-FF synchronise it into the q_rd_clk (register-read) domain before it
+// rides up to the host as a SEPARATE port (placed in a spare reg field, not the
+// depth byte). Monotonic + only-changes-on-new-peak -> a multi-bit transition
+// window is vanishingly rarely sampled and self-corrects on re-read; no
+// destination max-hold (that would latch a transient-high glitch).
+// (q_wrusedw_max declared up with the other queue nets, before the instance.)
+reg  [3:0] q_wm_sync1, q_wm_sync2;
+always @(posedge q_rd_clk or posedge q_rst) begin
+  if (q_rst) begin
+    q_wm_sync1 <= 4'd0;
+    q_wm_sync2 <= 4'd0;
+  end else begin
+    q_wm_sync1 <= q_wrusedw_max;
+    q_wm_sync2 <= q_wm_sync1;
+  end
+end
+assign q_rd_wm = q_wm_sync2;
 
 endmodule

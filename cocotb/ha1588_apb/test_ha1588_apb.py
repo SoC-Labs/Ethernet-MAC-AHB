@@ -26,6 +26,7 @@ HA1588 Register map (byte addresses, from reg.v):
     0x78  TSU_TXQUE_DATA2 0x7C  TSU_TXQUE_DATA3
 """
 
+import os
 import random
 
 import cocotb
@@ -2121,3 +2122,82 @@ async def test_tsu_rx_sticky_parity_blip(dut):
     assert res["msg_id"] == 0 and res["seq_id"] == 77, (
         f"post-blip entry mismatch: msgId={res['msg_id']} "
         f"seqId={res['seq_id']} (expect Sync seqId=77)")
+
+
+@cocotb.test(skip=(os.environ.get("HA1588_WM_RTL", "0") != "1"))
+async def test_tsu_rx_queue_high_watermark(dut):
+    """M4 (perf-probe): ptp_queue high-watermark.
+
+    SKIPPED unless HA1588_WM_RTL=1 (set by Makefile.watermark, which compiles the
+    PATCHED ha1588.v + reg.v that carry the watermark routing to reg 0x44[11:8]).
+    The default Makefile.patched uses the UPSTREAM reg.v (no watermark field), so
+    this test is skipped there rather than failing. (Makefile.watermark also
+    isolates the RTC tests that the patched reg/ha1588 reset-fixes perturb in
+    this env — a pre-existing reg-vs-tb discrepancy, unrelated to the watermark.)
+
+    The RX timestamp queue now exports a running PEAK-fill watermark, exposed in
+    TSU_RXQUE_STATUS[11:8] (0x44). Asserts the three watermark invariants:
+      1. tracks the peak depth as frames accumulate (un-drained),
+      2. HOLDS that peak after the queue is fully drained,
+      3. CLEARS to 0 on a queue reset.
+    [3:0] is the live read-side depth (unchanged); [11:8] is the new watermark.
+    """
+    tb = Ha1588ApbTB(dut)
+    await tb.reset()
+    await tb.start_gmii_clocks()
+    await setup_rtc_ticking(tb)
+    await _seed_rtc_time(tb, dut)
+
+    def depth_of(stat):
+        return stat & 0xF
+
+    def wm_of(stat):
+        return (stat >> 8) & 0xF
+
+    # Arm RX (accept Sync, msgType 0 -> mask[31:24]) + reset queue to a clean 0.
+    await tb.reg_write(REG_TSU_RXSTAT, 0x01000000)
+    await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_RESET)
+    await ClockCycles(dut.pclk, 30)
+    await tb.reg_write(REG_TSU_RXCTRL, 0)
+    await ClockCycles(dut.pclk, 30)
+
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    assert wm_of(stat) == 0, f"watermark not 0 after queue reset: 0x{stat:08x}"
+
+    # 1. FILL: inject N PTP Sync frames WITHOUT draining -> depth climbs to N.
+    dut.rx_giga_mode.value = 1
+    N = 4
+    for i in range(N):
+        frame = build_l2_ptp_sync_frame_pre(7, seq_id=100 + i)
+        await drive_gmii_frame(dut, frame, rx=True, giga_mode=True)
+        await ClockCycles(dut.pclk, 120)
+
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    tb.log.info("after %d frames: depth=%d watermark=%d (0x%08x)",
+                N, depth_of(stat), wm_of(stat), stat)
+    assert wm_of(stat) >= N, (
+        f"watermark {wm_of(stat)} < injected {N} "
+        f"(depth={depth_of(stat)}, stat=0x{stat:08x})")
+
+    # 2. DRAIN: pop every entry. Live depth -> 0, watermark must HOLD the peak.
+    for _ in range(N + 2):
+        await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_READ_QUEUE)
+        await ClockCycles(dut.pclk, 10)
+        await tb.reg_write(REG_TSU_RXCTRL, 0)
+        await tb.reg_read(REG_TSU_RXDATA0)
+        await ClockCycles(dut.pclk, 10)
+
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    tb.log.info("after drain: depth=%d watermark=%d (0x%08x)",
+                depth_of(stat), wm_of(stat), stat)
+    assert wm_of(stat) >= N, (
+        f"watermark must hold after drain: {wm_of(stat)} < {N} (0x{stat:08x})")
+
+    # 3. RESET: a queue reset clears the watermark back to 0.
+    await tb.reg_write(REG_TSU_RXCTRL, TSU_CTRL_RESET)
+    await ClockCycles(dut.pclk, 40)
+    await tb.reg_write(REG_TSU_RXCTRL, 0)
+    await ClockCycles(dut.pclk, 30)
+    stat = await tb.reg_read(REG_TSU_RXSTAT)
+    assert wm_of(stat) == 0, (
+        f"watermark not cleared by queue reset: {wm_of(stat)} (0x{stat:08x})")

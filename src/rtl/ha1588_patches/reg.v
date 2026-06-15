@@ -41,6 +41,7 @@ module rgs (
   output         rx_q_rd_en_out,
   output [  7:0] rx_q_ptp_msgid_mask_out,
   input  [  7:0] rx_q_stat_in,
+  input  [  3:0] rx_q_wm_in,      // RX queue high-watermark (perf instrumentation)
   input  [127:0] rx_q_data_in,
   // tx tsu interface
   output         tx_q_rst_out,
@@ -48,6 +49,7 @@ module rgs (
   output         tx_q_rd_en_out,
   output [  7:0] tx_q_ptp_msgid_mask_out,
   input  [  7:0] tx_q_stat_in,
+  input  [  3:0] tx_q_wm_in,      // TX queue high-watermark (perf instrumentation)
   input  [127:0] tx_q_data_in
 );
 
@@ -181,8 +183,10 @@ reg  [37:0] time_reg_ns_int;
 reg  [47:0] time_reg_sec_int;
 reg  [127:0] rx_q_data_int;
 reg  [  7:0] rx_q_stat_int;
+reg  [  3:0] rx_q_wm_int;
 reg  [127:0] tx_q_data_int;
 reg  [  7:0] tx_q_stat_int;
+reg  [  3:0] tx_q_wm_int;
 reg         time_ok;
 reg         rxqu_ok;
 reg         txqu_ok;
@@ -206,14 +210,14 @@ always @(posedge clk) begin
     if (rd_in && cs_30) data_out_reg <= reg_30;
     // register mapping: TSU RX
     if (rd_in && cs_40) data_out_reg <= {30'd0, reg_40[1], rxqu_ok};
-    if (rd_in && cs_44) data_out_reg <= {reg_44, 16'd0, rx_q_stat_int[ 7: 0]};
+    if (rd_in && cs_44) data_out_reg <= {reg_44, 12'd0, rx_q_wm_int[3:0], rx_q_stat_int[ 7: 0]};
     if (rd_in && cs_50) data_out_reg <= rx_q_data_int[127: 96];
     if (rd_in && cs_54) data_out_reg <= rx_q_data_int[ 95: 64];
     if (rd_in && cs_58) data_out_reg <= rx_q_data_int[ 63: 32];
     if (rd_in && cs_5c) data_out_reg <= rx_q_data_int[ 31:  0];
     // register mapping: TSU TX
     if (rd_in && cs_60) data_out_reg <= {30'd0, reg_60[1], txqu_ok};
-    if (rd_in && cs_64) data_out_reg <= {reg_64, 16'd0, tx_q_stat_int[ 7: 0]};
+    if (rd_in && cs_64) data_out_reg <= {reg_64, 12'd0, tx_q_wm_int[3:0], tx_q_stat_int[ 7: 0]};
     if (rd_in && cs_70) data_out_reg <= tx_q_data_int[127: 96];
     if (rd_in && cs_74) data_out_reg <= tx_q_data_int[ 95: 64];
     if (rd_in && cs_78) data_out_reg <= tx_q_data_int[ 63: 32];
@@ -394,9 +398,11 @@ always @(posedge clk) begin
   if (rst) begin
     rx_q_data_int <= 128'd0;
     rx_q_stat_int <= 8'd0;
+    rx_q_wm_int   <= 4'd0;
   end else begin
     rx_q_data_int <= rx_q_data_in;
     rx_q_stat_int <= rx_q_stat_in;
+    rx_q_wm_int   <= rx_q_wm_in;
   end
 end
 
@@ -450,9 +456,11 @@ always @(posedge clk) begin
   if (rst) begin
     tx_q_data_int <= 128'd0;
     tx_q_stat_int <= 8'd0;
+    tx_q_wm_int   <= 4'd0;
   end else begin
     tx_q_data_int <= tx_q_data_in;
     tx_q_stat_int <= tx_q_stat_in;
+    tx_q_wm_int   <= tx_q_wm_in;
   end
 end
 

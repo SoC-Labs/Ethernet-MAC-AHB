@@ -1,0 +1,46 @@
+# Makefile.watermark -- validate the ptp_queue HIGH-WATERMARK (perf-probe M4)
+# end to end through the APB register path.
+#
+# Unlike Makefile.patched (which compiles the UPSTREAM ha1588.v + reg.v), this
+# compiles the PATCHED ha1588.v + reg.v so the watermark routing reaches reg
+# 0x44/0x64 bits [11:8]. Those patched files also carry the reg/ha1588 reset
+# fixes, which perturb a handful of RTC/CDC tests in THIS env (a pre-existing
+# reg-vs-tb-reset discrepancy, unrelated to the watermark) -- so this Makefile
+# runs ONLY the watermark test (COCOTB_TESTCASE) and sets HA1588_WM_RTL=1 to
+# un-skip it. The full functional suite stays on Makefile.patched.
+#
+# Usage:
+#   source ../../set_env.sh
+#   make -f Makefile.watermark
+
+TOPLEVEL_LANG = verilog
+SIM ?= vcs
+
+HA1588_IP_DIR   ?= /research/AAA/ip_library/OpenCores-HA1588
+HA1588_RTL       = $(HA1588_IP_DIR)/rtl
+PATCH_DIR        = $(CURDIR)/../../src/rtl/ha1588_patches
+
+COMPILE_ARGS += +incdir+$(HA1588_RTL)/tsu
+COMPILE_ARGS += -sverilog
+
+VERILOG_SOURCES  = $(CURDIR)/tb_ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../src/rtl/ha1588_apb.v
+VERILOG_SOURCES += $(CURDIR)/../../amba_wb_bridges/src/rtl/apb_to_wb.v
+VERILOG_SOURCES += $(HA1588_RTL)/bus/wishbone/wb_slv_wrapper.v
+# PATCHED ha1588.v + reg.v (carry the watermark routing); rest as Makefile.patched.
+VERILOG_SOURCES += $(PATCH_DIR)/ha1588.v
+VERILOG_SOURCES += $(PATCH_DIR)/reg.v
+VERILOG_SOURCES += $(HA1588_RTL)/rtc/rtc.v
+VERILOG_SOURCES += $(PATCH_DIR)/tsu.v
+VERILOG_SOURCES += $(PATCH_DIR)/ptp_parser.v
+VERILOG_SOURCES += $(PATCH_DIR)/ptp_queue.v
+
+# Run only the watermark test, and un-skip it (see test_ha1588_apb.py).
+export HA1588_WM_RTL := 1
+COCOTB_TESTCASE ?= test_tsu_rx_queue_high_watermark
+export COCOTB_TESTCASE
+
+TOPLEVEL = tb_ha1588_apb
+MODULE   = test_ha1588_apb
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
