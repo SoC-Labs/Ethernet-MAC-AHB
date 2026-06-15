@@ -588,8 +588,8 @@ ptp_parser parser(
 wire q_wr_clk = gmii_clk;
 wire q_wr_en = ptp_found && int_eop_d1;
 wire [127:0] q_wr_data = {16'd0, tsu_time_stamp, ptp_infor};  // 16+80+32 bit
-wire [3:0] q_wrusedw;
-wire [3:0] q_rdusedw;
+wire [4:0] q_wrusedw;   // Bug r5-#1: 5-bit so a full (16) FIFO is not aliased to 0
+wire [4:0] q_rdusedw;
 wire [3:0] q_usedw_max;     // RX queue peak-fill watermark (read-clock domain, no CDC)
 wire q_wr_full;
 wire q_rd_empty;
@@ -611,9 +611,10 @@ ptp_queue queue(
   .usedw_max(q_usedw_max)
 );
 
-// q_rd_stat is unchanged (the host's depth byte): [3:0] = read-side fill,
-// [7:4] hardwired 0 as before -> existing consumers that mask &0xFF still work.
-assign q_rd_stat = {4'd0, q_rdusedw};
+// q_rd_stat is the host's depth byte. Bug r5-#1: q_rdusedw is now 5-bit so a
+// full FIFO reads 16 (0x10), not 0; pack {3'd0, q_rdusedw} so the depth (0..16)
+// fits the low 5 bits. Existing consumers that mask &0xFF still work.
+assign q_rd_stat = {3'd0, q_rdusedw};
 
 // High-watermark: ptp_queue tracks the peak in the READ clock domain (rdclk =
 // q_rd_clk), so q_usedw_max is already in the register-read domain — drive it up

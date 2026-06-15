@@ -13,7 +13,9 @@
 
 `timescale 1ns/1ns
 
-module ptp_queue (
+module ptp_queue #(
+  parameter ADDR_W = 4          // FIFO address width (depth = 1<<ADDR_W = 16)
+) (
   input          aclr,
   input  [127:0] data,
   input          rdclk,
@@ -22,14 +24,13 @@ module ptp_queue (
   input          wrreq,
   output [127:0] q,
   output         rdempty,
-  output [  3:0] rdusedw,
-  output         wrfull,
-  output [  3:0] wrusedw,
+  output [ADDR_W:0] rdusedw,   // Bug r5-#1: ADDR_W+1 bits so a FULL (16) FIFO
+  output         wrfull,       // reads 0x10, not 0 (4-bit aliased full->empty)
+  output [ADDR_W:0] wrusedw,
   output [  3:0] usedw_max     // running peak fill since aclr (perf high-watermark)
 );
 
-  // FIFO depth = 16, address width = 4
-  localparam ADDR_W = 4;
+  // FIFO depth = 16 (ADDR_W is now a header parameter, default 4)
   localparam DEPTH  = 1 << ADDR_W;
 
   //---------------------------------------------------------------
@@ -135,8 +136,11 @@ module ptp_queue (
   wire [ADDR_W:0] wr_bin_in_rd = gray2bin(wr_gray_rd2);
   wire [ADDR_W:0] rd_bin_in_wr = gray2bin(rd_gray_wr2);
 
-  assign rdusedw = wr_bin_in_rd[ADDR_W-1:0] - rd_bin[ADDR_W-1:0];
-  assign wrusedw = wr_bin[ADDR_W-1:0] - rd_bin_in_wr[ADDR_W-1:0];
+  // Bug r5-#1: subtract the FULL (ADDR_W+1)-bit pointers, not just the low
+  // ADDR_W bits — otherwise a full FIFO (16) wraps to 0 and reads as empty, so
+  // firmware never drains it (FIFO then wedges full, all later PTP TS lost).
+  assign rdusedw = wr_bin_in_rd - rd_bin;
+  assign wrusedw = wr_bin - rd_bin_in_wr;
 
   //---------------------------------------------------------------
   // High-watermark: running peak fill since aclr (perf instrumentation).
@@ -146,18 +150,19 @@ module ptp_queue (
   // gmii clock, which on silicon is GATED — only active during frame reception
   // — so the tracker missed the peak and read 0 even though the queue filled.
   // The read-domain version is also CDC-free: rdusedw and this reg share rdclk.)
-  // rdusedw wraps to 0 at the 16-deep full point (rdempty distinguishes it from
-  // empty), so a non-empty-but-zero reading is saturated to 4'hF: the watermark
-  // reads 0xF iff the queue ever reached full.
-  wire [ADDR_W-1:0] rd_occ = (!rdempty && (rdusedw == {ADDR_W{1'b0}}))
-                              ? {ADDR_W{1'b1}} : rdusedw;
-  reg  [ADDR_W-1:0] usedw_max_r;
+  // Bug r5-#1: rdusedw is now the true (ADDR_W+1)-bit occupancy (0..16); full no
+  // longer aliases to 0, so the old "!rdempty && reads-0 -> saturate to 0xF"
+  // hack is gone. The usedw_max PORT stays ADDR_W-wide for downstream stability,
+  // so the full point (16) saturates to 4'hF (0xF == "reached full").
+  wire [ADDR_W:0] rd_occ = rdusedw;
+  reg  [ADDR_W:0] usedw_max_r;
   always @(posedge rdclk or posedge aclr) begin
     if (aclr)
-      usedw_max_r <= {ADDR_W{1'b0}};
+      usedw_max_r <= {(ADDR_W+1){1'b0}};
     else if (rd_occ > usedw_max_r)
       usedw_max_r <= rd_occ;
   end
-  assign usedw_max = usedw_max_r;
+  assign usedw_max = usedw_max_r[ADDR_W] ? {ADDR_W{1'b1}}
+                                         : usedw_max_r[ADDR_W-1:0];
 
 endmodule
