@@ -99,9 +99,22 @@ module ha1588_servo #(
             capture_req_toggle <= ~capture_req_toggle;
     end
 
-    // -- Request sync into rtc_clk domain --
+    // Bug r5#3: rtc_clk-domain reset synchronizer (async-assert, sync-deassert).
+    // `resetn` is synchronous to `clk`, so it is asynchronous w.r.t. the free-
+    // running rtc_clk; deasserting it directly on the rtc_clk flops risks a
+    // recovery/removal timing violation at reset release. Bridge it through a
+    // 2-FF synchronizer clocked by rtc_clk (rtc_clk free-runs at sys_fclk, so it
+    // always deasserts). All rtc_clk-domain flops below use rtc_resetn.
+    logic [1:0] rtc_resetn_sync;
     always_ff @(posedge rtc_clk or negedge resetn) begin
-        if (!resetn)
+        if (!resetn) rtc_resetn_sync <= 2'b00;
+        else         rtc_resetn_sync <= {rtc_resetn_sync[0], 1'b1};
+    end
+    wire rtc_resetn = rtc_resetn_sync[1];
+
+    // -- Request sync into rtc_clk domain --
+    always_ff @(posedge rtc_clk or negedge rtc_resetn) begin
+        if (!rtc_resetn)
             req_sync_rtc <= 3'b0;
         else
             req_sync_rtc <= {req_sync_rtc[1:0], capture_req_toggle};
@@ -110,8 +123,8 @@ module ha1588_servo #(
     assign req_edge_rtc = req_sync_rtc[2] ^ req_sync_rtc[1];
 
     // -- Snapshot ha1588 time and ack (rtc_clk domain) --
-    always_ff @(posedge rtc_clk or negedge resetn) begin
-        if (!resetn) begin
+    always_ff @(posedge rtc_clk or negedge rtc_resetn) begin
+        if (!rtc_resetn) begin
             ha_snap_sec        <= 48'b0;
             ha_snap_ns         <= 30'b0;
             capture_ack_toggle <= 1'b0;
