@@ -25,7 +25,7 @@ module ptp_queue (
   output [  3:0] rdusedw,
   output         wrfull,
   output [  3:0] wrusedw,
-  output [  3:0] wrusedw_max   // running peak fill since aclr (perf high-watermark)
+  output [  3:0] usedw_max     // running peak fill since aclr (perf high-watermark)
 );
 
   // FIFO depth = 16, address width = 4
@@ -140,20 +140,24 @@ module ptp_queue (
 
   //---------------------------------------------------------------
   // High-watermark: running peak fill since aclr (perf instrumentation).
-  // Tracked in the WRITE clock domain — the write side is where overflow
-  // (wrfull) is known. wrusedw wraps to 0 at the 16-deep full point, so the
-  // full condition is saturated to 4'hF; the watermark therefore reads 0xF iff
-  // the queue ever reached full. Monotonic non-decreasing -> safe to 2-FF
-  // synchronise into the read/status domain at the point of use (it only ever
-  // changes on a new peak, so a sampler almost never sees a transition).
-  wire [ADDR_W-1:0] wr_occ = wrfull ? {ADDR_W{1'b1}} : wrusedw;
-  reg  [ADDR_W-1:0] wrusedw_max_r;
-  always @(posedge wrclk or posedge aclr) begin
+  // Tracked in the READ clock domain on `rdusedw`. The read clock (rdclk =
+  // the register/system clock) is FREE-RUNNING, so the max-tracker always gets
+  // edges. (An earlier write-clock-domain version tracked on `wrclk` = the RX
+  // gmii clock, which on silicon is GATED — only active during frame reception
+  // — so the tracker missed the peak and read 0 even though the queue filled.
+  // The read-domain version is also CDC-free: rdusedw and this reg share rdclk.)
+  // rdusedw wraps to 0 at the 16-deep full point (rdempty distinguishes it from
+  // empty), so a non-empty-but-zero reading is saturated to 4'hF: the watermark
+  // reads 0xF iff the queue ever reached full.
+  wire [ADDR_W-1:0] rd_occ = (!rdempty && (rdusedw == {ADDR_W{1'b0}}))
+                              ? {ADDR_W{1'b1}} : rdusedw;
+  reg  [ADDR_W-1:0] usedw_max_r;
+  always @(posedge rdclk or posedge aclr) begin
     if (aclr)
-      wrusedw_max_r <= {ADDR_W{1'b0}};
-    else if (wr_occ > wrusedw_max_r)
-      wrusedw_max_r <= wr_occ;
+      usedw_max_r <= {ADDR_W{1'b0}};
+    else if (rd_occ > usedw_max_r)
+      usedw_max_r <= rd_occ;
   end
-  assign wrusedw_max = wrusedw_max_r;
+  assign usedw_max = usedw_max_r;
 
 endmodule
