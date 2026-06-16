@@ -252,6 +252,23 @@ int ethmac_phy_scan(ethmac_t *eth);
  */
 int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms);
 
+/**
+ * Report the auto-negotiation-resolved duplex of the link.
+ *
+ * Reads our ADVERTISE (reg 4) and the partner's ANLPAR (reg 5) and applies
+ * the IEEE 802.3 priority resolution (100FD > 100HD > 10FD > 10HD) to the
+ * highest common ability. Use this AFTER `ethmac_phy_init` returns 0 to set
+ * the MAC MODER.FULLD bit to match the wire — forcing full-duplex against a
+ * half-duplex partner disables CSMA/CD deferral and corrupts TX.
+ *
+ * @param eth       Driver handle.
+ * @param phy_addr  PHY address (from `ethmac_phy_scan`).
+ * @return 1 if the resolved link is full-duplex, 0 if half-duplex, or -1 if
+ *         it cannot be determined (MDIO error / no common mode). Treat -1 as
+ *         half-duplex (the IEEE default for an unresolved link).
+ */
+int ethmac_phy_link_is_fullduplex(ethmac_t *eth, uint32_t phy_addr);
+
 /* ── Buffer Descriptor Management ───────────────────────────────────────── */
 
 /**

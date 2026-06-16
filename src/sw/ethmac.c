@@ -124,6 +124,7 @@ int ethmac_mii_write(ethmac_t *eth, uint32_t phy_addr, uint32_t reg_addr,
 #define PHY_REG_BMCR        0U  /* Basic Mode Control Register */
 #define PHY_REG_BMSR        1U  /* Basic Mode Status Register */
 #define PHY_REG_ADVERTISE   4U  /* Auto-Negotiation Advertisement */
+#define PHY_REG_ANLPAR      5U  /* AN Link-Partner Ability */
 
 /* BMCR bits we care about */
 #define PHY_BMCR_ANRESTART  (1U << 9)
@@ -259,6 +260,30 @@ int ethmac_phy_init(ethmac_t *eth, uint32_t phy_addr, uint32_t an_timeout_ms)
         for (volatile uint32_t i = 0; i < poll_inner_loops; i++) { }
     }
     return -1;
+}
+
+/* ADVERTISE / ANLPAR ability bits (same positions in both registers). */
+#define PHY_ABILITY_100FD   (1U << 8)
+#define PHY_ABILITY_100HD   (1U << 7)
+#define PHY_ABILITY_10FD    (1U << 6)
+#define PHY_ABILITY_10HD    (1U << 5)
+
+int ethmac_phy_link_is_fullduplex(ethmac_t *eth, uint32_t phy_addr)
+{
+    int adv = ethmac_mii_read(eth, phy_addr, PHY_REG_ADVERTISE,
+                              PHY_MII_TIMEOUT);
+    int lpa = ethmac_mii_read(eth, phy_addr, PHY_REG_ANLPAR,
+                              PHY_MII_TIMEOUT);
+    if (adv <= 0 || adv == 0xFFFF || lpa <= 0 || lpa == 0xFFFF)
+        return -1;
+
+    /* Highest common ability, IEEE 802.3 priority order. */
+    uint32_t common = (uint32_t)adv & (uint32_t)lpa;
+    if (common & PHY_ABILITY_100FD) return 1;
+    if (common & PHY_ABILITY_100HD) return 0;
+    if (common & PHY_ABILITY_10FD)  return 1;
+    if (common & PHY_ABILITY_10HD)  return 0;
+    return -1;  /* no common mode — caller defaults to half-duplex */
 }
 
 /* ── Buffer Descriptor Management ───────────────────────────────────────── */
