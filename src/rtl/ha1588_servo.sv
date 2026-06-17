@@ -156,6 +156,19 @@ module ha1588_servo #(
     logic        timer_armed;
     logic        sync_fire;
 
+    // Re-arm trigger: the sync target is computed from sync_interval at arm
+    // time. If firmware updates SYNC_INTERVAL after the servo is already
+    // enabled/armed (e.g. enable written before interval), the stale target
+    // would otherwise never be corrected. Detect a change in sync_interval
+    // while enabled and re-arm the target from the current PHC time.
+    logic [29:0] sync_interval_q;
+    logic        sync_interval_changed;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) sync_interval_q <= 30'b0;
+        else         sync_interval_q <= sync_interval;
+    end
+    assign sync_interval_changed = enable && (sync_interval != sync_interval_q);
+
     // Pre-register 48-bit seconds comparison to break timing-critical path.
     // A 1-cycle suppress flag prevents spurious fires when the target changes,
     // as the registered comparison needs one cycle to reflect the new target.
@@ -172,7 +185,7 @@ module ha1588_servo #(
             seconds_past  <= (phc_seconds > target_seconds);
             seconds_match <= (phc_seconds == target_seconds);
             // Suppress for 1 cycle after target changes (arm, re-arm, or disable)
-            target_suppress <= !enable || !timer_armed || sync_fire;
+            target_suppress <= !enable || !timer_armed || sync_fire || sync_interval_changed;
         end
     end
 
@@ -191,8 +204,9 @@ module ha1588_servo #(
             target_seconds     <= phc_seconds;
             target_nanoseconds <= phc_nanoseconds;
             timer_armed        <= 1'b0;
-        end else if (!timer_armed) begin
-            // Just enabled: set first target one interval from now
+        end else if (!timer_armed || sync_interval_changed) begin
+            // Just enabled, or SYNC_INTERVAL changed while enabled: (re)arm the
+            // first target one interval from now using the current interval.
             if ({2'b0, phc_nanoseconds} + {2'b0, sync_interval} > {2'b0, NS_PER_SECOND}) begin
                 target_nanoseconds <= phc_nanoseconds + sync_interval - NS_PER_SECOND - 30'd1;
                 target_seconds     <= phc_seconds + 48'd1;
