@@ -276,10 +276,26 @@ module eth_rx_cksum #(
   // ════════════════════════════════════════════════════════════════════
   //  Checksum finalisation (combinational)
   // ════════════════════════════════════════════════════════════════════
+  // Header sanity (#4): refuse to vouch for a malformed/oversized IPv4 header.
+  //   - IHL must be >= 5 (a valid IPv4 header is >= 20 bytes); a smaller IHL
+  //     makes ip_hdr_size/l4_start_idx point inside the header and the cksum
+  //     loop covers the wrong bytes.
+  //   - total_len must fit the block's 11-bit byte counter (>2047 truncates
+  //     l4_end_idx) and be at least the header length.
+  // When the header is not sane, IP_OK / L4_OK are NOT asserted (no false
+  // offload claim — software re-checks). is_ipv4 itself is left as-is so the
+  // snapshot still says "IPv4 frame, checksum not OK".
+  wire [15:0] ipv4_hdr_bytes = {10'd0, ipv4_ihl_q, 2'b00};
+  wire        ipv4_hdr_ok =
+        (ipv4_ihl_q >= 4'd5)
+      & (ipv4_total_len_q[15:11] == 5'd0)
+      & (ipv4_total_len_q >= ipv4_hdr_bytes);
+
+  // ════════════════════════════════════════════════════════════════════
   // IP header checksum
   wire [16:0] ip_fold0 = {1'b0, ip_sum[15:0]} + {16'h0, ip_sum[16]};
   wire [15:0] ip_calc  = ~ip_fold0[15:0];
-  wire        ip_ok    = is_ipv4_q & (ip_calc == ipv4_wire_cksum_q);
+  wire        ip_ok    = is_ipv4_q & ipv4_hdr_ok & (ip_calc == ipv4_wire_cksum_q);
 
   // L4 pseudo-header (IPv4 only — IPv6 removed for area)
   wire [15:0] ipv4_l4_len = ipv4_total_len_q - {10'h0, ipv4_ihl_q, 2'b00};
@@ -318,7 +334,7 @@ module eth_rx_cksum #(
   wire [15:0] l4_cfold    = l4_cfold0[15:0] + {15'h0, l4_cfold0[16]};
   wire [15:0] l4_calc     = ~l4_cfold;
 
-  wire l4_supported   = (is_udp_q | is_tcp_q) & ~(is_ipv4_q & is_fragment_q);
+  wire l4_supported   = (is_udp_q | is_tcp_q) & ipv4_hdr_ok & ~(is_ipv4_q & is_fragment_q);
   wire l4_match       = (l4_calc == l4_wire_cksum_q);
   wire l4_udp_zero    = is_udp_q & (l4_wire_cksum_q == 16'h0);
   wire l4_ok          = l4_supported & (l4_match | l4_udp_zero);
@@ -355,9 +371,18 @@ module eth_rx_cksum #(
   reg [7:0] snap_flags;
   reg [31:0] snap_seqnum;
 
+  // #5: classify-on-push handshake. On each push the writer latches the pushed
+  // frame's flags and flips a toggle. The pclk-side counters increment on the
+  // synchronised toggle edge and read these (then-stable) flags — a standard
+  // data-with-toggle CDC — instead of re-reading the fifo_mem array across the
+  // mrx_clk->pclk boundary (which could read a slot mid-rewrite under burst).
+  reg [7:0] last_push_flags_mrx;
+  reg       push_tog_mrx;
+
   always @(posedge mrx_clk_i or negedge mrx_rstn_i) begin
     if (!mrx_rstn_i) begin
       snap_push <= 1'b0; snap_flags <= 8'h0; snap_seqnum <= 32'h0;
+      last_push_flags_mrx <= 8'h0; push_tog_mrx <= 1'b0;
     end else begin
       snap_push <= 1'b0;
       if (eof_pulse && en_mrx && sfd_seen
@@ -365,6 +390,8 @@ module eth_rx_cksum #(
         snap_push   <= 1'b1;
         snap_flags  <= eof_flags;
         snap_seqnum <= seqnum_mrx + 32'h1;
+        last_push_flags_mrx <= eof_flags;
+        push_tog_mrx        <= ~push_tog_mrx;
       end
     end
   end
@@ -477,12 +504,42 @@ module eth_rx_cksum #(
   wire fifo_empty_pclk = (occ_pclk == 0);
   wire fifo_full_pclk  = (occ_pclk == SNAPSHOT_FIFO_DEPTH[FIFO_AW:0]);
 
+  // Synchronise the writer's push toggle (3 FFs: 2 for metastability + 1 to
+  // edge-detect). A toggle edge == one frame pushed; the pclk-side counters
+  // increment on the edge and read the latched flags (stable by the time the
+  // toggle crosses) — no raw fifo_mem CDC read (#5). Declared here (ahead of the
+  // head/lo_seen logic that consumes push_event), VCS `default_nettype none`.
+  reg push_tog_pclk_s0, push_tog_pclk_s1, push_tog_pclk_s2;
+  always @(posedge pclk or negedge presetn) begin
+    if (!presetn) begin
+      push_tog_pclk_s0 <= 1'b0; push_tog_pclk_s1 <= 1'b0; push_tog_pclk_s2 <= 1'b0;
+    end else begin
+      push_tog_pclk_s0 <= push_tog_mrx;
+      push_tog_pclk_s1 <= push_tog_pclk_s0;
+      push_tog_pclk_s2 <= push_tog_pclk_s1;
+    end
+  end
+  wire push_event = push_tog_pclk_s1 ^ push_tog_pclk_s2;
+
+  // lo_seen: at least one frame pushed since reset/clear. Survives the write
+  // pointer wrapping through 0, unlike a (wptr==0) test.
+  reg lo_seen;
+  always @(posedge pclk or negedge presetn) begin
+    if (!presetn)            lo_seen <= 1'b0;
+    else if (clr_fifo_pulse) lo_seen <= 1'b0;
+    else if (push_event)     lo_seen <= 1'b1;
+  end
+
   // In LAST_ONLY the newest complete entry is the slot one behind the write
   // pointer (the writer is already rotating onto the other slot). Reading that
   // slot — never the one being written — is what makes the snapshot tear-free.
   wire mode_last_only_pclk = (ctrl_mode == MODE_LAST_ONLY);
   wire [FIFO_AW:0]   lo_last_ptr = wptr_bin_pclk - {{FIFO_AW{1'b0}}, 1'b1};
-  wire               lo_empty    = (wptr_bin_pclk == {(FIFO_AW+1){1'b0}});
+  // "Empty" in LAST_ONLY means nothing has been pushed yet — tracked by lo_seen,
+  // NOT (wptr==0): the write pointer legitimately wraps back through 0 every
+  // 2^(FIFO_AW+1) pushes, and treating that as empty made the reader return 0
+  // (and STATUS.level read 2 instead of 1) after every wrap.
+  wire               lo_empty    = ~lo_seen;
   wire [FIFO_AW-1:0] rd_slot  = mode_last_only_pclk ? lo_last_ptr[FIFO_AW-1:0]
                                                     : rptr_bin_pclk[FIFO_AW-1:0];
   wire               rd_empty = mode_last_only_pclk ? lo_empty : fifo_empty_pclk;
@@ -511,34 +568,30 @@ module eth_rx_cksum #(
     // LAST_ONLY: follow the newest entry so occupancy/status stay coherent and
     // the read slot tracks (wptr-1). No software pop in this mode.
     else if (mode_last_only_pclk) begin
-      if (wptr_bin_pclk != {(FIFO_AW+1){1'b0}})
+      if (lo_seen)
         rptr_bin_pclk <= lo_last_ptr;
     end
     else if (pop_request)    rptr_bin_pclk <= rptr_bin_pclk + 1;
   end
 
-  // ── Counters (push-event based in pclk) ─────────────────────────────
-  reg [FIFO_AW:0] wptr_bin_pclk_prev;
-  wire push_event = (wptr_bin_pclk != wptr_bin_pclk_prev);
-
-  wire [SNAP_W-1:0] pushed_data = fifo_mem[wptr_bin_pclk_prev[FIFO_AW-1:0]];
-  wire pushed_is_ipv4 = pushed_data[1];
-  wire pushed_ip_ok   = pushed_data[5];
-  wire pushed_l4_ok   = pushed_data[6];
-  wire pushed_is_udp  = pushed_data[3];
-  wire pushed_is_tcp  = pushed_data[4];
-  wire pushed_frag    = pushed_data[7];
+  // ── Counters (push-toggle handshake in pclk) ────────────────────────
+  // push_event / push_tog sync declared above (needed earlier by lo_seen).
+  wire [7:0] pushed_flags = last_push_flags_mrx;
+  wire pushed_is_ipv4 = pushed_flags[1];
+  wire pushed_ip_ok   = pushed_flags[5];
+  wire pushed_l4_ok   = pushed_flags[6];
+  wire pushed_is_udp  = pushed_flags[3];
+  wire pushed_is_tcp  = pushed_flags[4];
+  wire pushed_frag    = pushed_flags[7];
 
   reg [31:0] frame_count_q, ip_good_q, ip_bad_q, l4_good_q, l4_bad_q;
   reg        ovf_sticky_q;
 
   always @(posedge pclk or negedge presetn) begin
     if (!presetn) begin
-      wptr_bin_pclk_prev <= 0;
       frame_count_q <= 0; ip_good_q <= 0; ip_bad_q <= 0;
       l4_good_q <= 0; l4_bad_q <= 0; ovf_sticky_q <= 0;
     end else begin
-      wptr_bin_pclk_prev <= wptr_bin_pclk;
       if (clr_counters_pulse) begin
         frame_count_q <= 0; ip_good_q <= 0; ip_bad_q <= 0;
         l4_good_q <= 0; l4_bad_q <= 0;
