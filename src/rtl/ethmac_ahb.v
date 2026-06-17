@@ -147,6 +147,10 @@ module ethmac_ahb #(
   //---------------------------------------------------
   // WISHBONE Master to AHB Master Bridge (DMA)
   //---------------------------------------------------
+  // Bridge "transfer active" observation net (was mis-wired to hmastlock).
+  wire bridge_xfer_active_w;
+  assign hmastlock = 1'b0;  // eth master performs no locked sequences
+
   wb_to_ahb3lite #(
     .SWAP_DMA_BYTES (SWAP_DMA_BYTES)
   ) u_wb_to_ahb3lite (
@@ -167,7 +171,12 @@ module ethmac_ahb #(
     .from_m_wb_bte_o    (m_wb_bte_o),
 
     // AHB master side
-    .mHSEL              (hmastlock),
+    // wb_to_ahb3lite drives mHSEL = (state != S_IDLE), i.e. "transfer in flight".
+    // It is NOT a locked-sequence indicator. Routing it to hmastlock made the
+    // CMSDK busmatrix arbiter hold the granted port for the whole eth DMA, starving
+    // the other master on shared slaves (e.g. SHARED_SRAM ring). Eth DMA issues no
+    // locked/exclusive sequences, so hmastlock is tied low (see assign below).
+    .mHSEL              (bridge_xfer_active_w),
     .mHSIZE             (hsize),
     .mHRDATA            (hrdata),
     .mHRESP             (hresp),

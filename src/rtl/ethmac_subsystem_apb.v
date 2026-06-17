@@ -266,6 +266,10 @@ module ethmac_subsystem_apb #(
   wire  [2:0] m_wb_cti_o;
   wire  [1:0] m_wb_bte_o;
 
+  // Bridge "transfer active" observation net (was mis-wired to hmastlock).
+  wire bridge_xfer_active_w;
+  assign hmastlock = 1'b0;  // eth master performs no locked sequences
+
   wb_to_ahb3lite #(
     .SWAP_DMA_BYTES (SWAP_DMA_BYTES)
   ) u_wb_to_ahb3lite (
@@ -284,7 +288,8 @@ module ethmac_subsystem_apb #(
     .from_m_wb_cti_o    (m_wb_cti_o),
     .from_m_wb_bte_o    (m_wb_bte_o),
 
-    .mHSEL              (hmastlock),
+    // mHSEL = "transfer in flight", NOT a lock; see hmastlock tie-low above.
+    .mHSEL              (bridge_xfer_active_w),
     .mHSIZE             (hsize),
     .mHRDATA            (hrdata),
     .mHRESP             (hresp),
