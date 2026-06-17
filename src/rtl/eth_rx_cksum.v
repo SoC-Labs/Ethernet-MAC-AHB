@@ -418,11 +418,15 @@ module eth_rx_cksum #(
     end else if (snap_push) begin
       case (mode_mrx_s1)
         MODE_LAST_ONLY: begin
-          fifo_mem[0] <= snap_word;
-          if (occ_mrx == 0) begin
-            wptr_bin_mrx <= wptr_bin_mrx_nxt; wptr_gray_mrx <= wptr_gray_mrx_nxt;
-          end else
-            ovf_toggle_mrx <= ~ovf_toggle_mrx;
+          // Ping-pong: write a ROTATING slot and ALWAYS advance the write
+          // pointer (was: overwrite fifo_mem[0] in place). The pclk reader
+          // reads the *previous* completed slot (wptr-1), so the writer and
+          // reader never touch the same cell — this removes the dual-clock
+          // torn read of the 40-bit {seqnum,flags} snapshot. "Latest wins"
+          // is preserved because the reader always tracks the newest slot.
+          fifo_mem[wptr_bin_mrx[FIFO_AW-1:0]] <= snap_word;
+          wptr_bin_mrx  <= wptr_bin_mrx_nxt;
+          wptr_gray_mrx <= wptr_gray_mrx_nxt;
         end
         MODE_DROP_NEW: begin
           if (!fifo_full_mrx) begin
@@ -473,10 +477,30 @@ module eth_rx_cksum #(
   wire fifo_empty_pclk = (occ_pclk == 0);
   wire fifo_full_pclk  = (occ_pclk == SNAPSHOT_FIFO_DEPTH[FIFO_AW:0]);
 
-  wire [SNAP_W-1:0] head_data = fifo_empty_pclk ? {SNAP_W{1'b0}}
-                                                : fifo_mem[rptr_bin_pclk[FIFO_AW-1:0]];
-  wire [31:0] head_seqnum = head_data[39:8];
+  // In LAST_ONLY the newest complete entry is the slot one behind the write
+  // pointer (the writer is already rotating onto the other slot). Reading that
+  // slot — never the one being written — is what makes the snapshot tear-free.
+  wire mode_last_only_pclk = (ctrl_mode == MODE_LAST_ONLY);
+  wire [FIFO_AW:0]   lo_last_ptr = wptr_bin_pclk - {{FIFO_AW{1'b0}}, 1'b1};
+  wire               lo_empty    = (wptr_bin_pclk == {(FIFO_AW+1){1'b0}});
+  wire [FIFO_AW-1:0] rd_slot  = mode_last_only_pclk ? lo_last_ptr[FIFO_AW-1:0]
+                                                    : rptr_bin_pclk[FIFO_AW-1:0];
+  wire               rd_empty = mode_last_only_pclk ? lo_empty : fifo_empty_pclk;
+  wire [SNAP_W-1:0] head_data = rd_empty ? {SNAP_W{1'b0}} : fifo_mem[rd_slot];
   wire  [7:0] head_flags  = head_data[7:0];
+
+  // Frame-atomic peek: reading LAST_FLAGS latches the WHOLE 40-bit head so the
+  // following LAST_SEQNUM read returns the seqnum of the SAME frame even if a
+  // new frame lands between the two register reads. Read LAST_FLAGS before
+  // LAST_SEQNUM (the documented two-read sequence).
+  reg [SNAP_W-1:0] peek_hold;
+  always @(posedge pclk or negedge presetn) begin
+    if (!presetn)
+      peek_hold <= {SNAP_W{1'b0}};
+    else if (access_r && (off == OFF_LAST_FLAGS))
+      peek_hold <= head_data;
+  end
+  wire [31:0] peek_seqnum = peek_hold[39:8];
 
   // Pop: reading LAST_SEQNUM pops the FIFO head.
   wire pop_request = access_r && (off == OFF_LAST_SEQNUM) && !fifo_empty_pclk;
@@ -484,6 +508,12 @@ module eth_rx_cksum #(
   always @(posedge pclk or negedge presetn) begin
     if (!presetn)        rptr_bin_pclk <= 0;
     else if (clr_fifo_pulse) rptr_bin_pclk <= wptr_bin_pclk;
+    // LAST_ONLY: follow the newest entry so occupancy/status stay coherent and
+    // the read slot tracks (wptr-1). No software pop in this mode.
+    else if (mode_last_only_pclk) begin
+      if (wptr_bin_pclk != {(FIFO_AW+1){1'b0}})
+        rptr_bin_pclk <= lo_last_ptr;
+    end
     else if (pop_request)    rptr_bin_pclk <= rptr_bin_pclk + 1;
   end
 
@@ -553,7 +583,7 @@ module eth_rx_cksum #(
       OFF_L4_GOOD_COUNT: prdata_q = l4_good_q;
       OFF_L4_BAD_COUNT:  prdata_q = l4_bad_q;
       OFF_LAST_FLAGS:    prdata_q = {24'h0, head_flags};
-      OFF_LAST_SEQNUM:   prdata_q = head_seqnum;
+      OFF_LAST_SEQNUM:   prdata_q = peek_seqnum;   // frame-atomic with LAST_FLAGS
       OFF_IRQ_STATUS:    prdata_q = {29'b0, ovf_pending, bad_pending, frame_pending};
       default:           prdata_q = 32'h0;
     endcase
