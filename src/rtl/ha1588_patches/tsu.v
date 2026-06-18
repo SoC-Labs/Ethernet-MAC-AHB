@@ -375,13 +375,54 @@ always @(posedge rst_rtc or posedge rtc_timer_clk) begin
     if (ts_req_d2 & !ts_req_d3)
       rtc_time_stamp <= rtc_timer_in;
 end
+// ---------------------------------------------------------------------------
+// SoC Labs patch (Finding F): SYNCHRONOUS ts_req/ts_ack handshake.
+//
+// The stock tsu used `ts_ack_clr` -- a gmii_clk-domain DATA pulse generated at
+// the bottom of this block (line ~ below) -- as the ASYNC RESET of `ts_ack`,
+// which is set in the rtc_timer_clk domain:
+//
+//     always @(posedge ts_ack_clr or posedge rtc_timer_clk) ...
+//
+// That is an async-reset-by-data CDC antipattern sitting on the LIVE t2/t3
+// timestamp handshake. `ts_ack_clr`'s edge is asynchronous to rtc_timer_clk, so
+// it can violate recovery/removal on the ts_ack flop -> a metastable / glitchy
+// ts_ack, which then feeds the ts_ack_d1/d2/d3 synchroniser and gates the
+// timestamp move-across. On silicon this is a candidate source of t2/t3 capture
+// jitter and rare dropped/duplicated handshakes (offset outliers).
+//
+// FIX: a textbook 4-phase LEVEL req/ack handshake. ts_ack is now a plain
+// rtc-domain flop (async reset = the deassert-synchronised rst_rtc ONLY). It is
+// SET on the captured request edge (condition UNCHANGED: ts_req_d2 & !ts_req_d3)
+// and SYNCHRONOUSLY CLEARED when the gmii-domain clear request has crossed back
+// via its own 2-FF synchroniser (ts_ack_clr_meta/_sync). ts_ack_clr is now a
+// LEVEL (set on the gmii ack-edge, held until ts_ack is seen low again) so there
+// is NO one-cycle-pulse-width hazard across the domain crossing.
+//
+// CAPTURE TIMING IS PRESERVED EXACTLY: the timestamp value latched into
+// tsu_time_stamp still happens on the gmii ack-edge `ts_ack_d2 & !ts_ack_d3`
+// (unchanged), sampling rtc_time_stamp (unchanged). This patch only changes the
+// return-to-zero (clear) arm of the handshake, which runs in the multi-clock gap
+// BETWEEN PTP frames (frames are ms..s apart; the handshake settles in a handful
+// of clocks). Unlike the SFD-capture attempt -- which moved the sample point and
+// regressed -- nothing here shifts WHICH cycle the timestamp is sampled on.
+// ---------------------------------------------------------------------------
 reg ts_ack, ts_ack_clr;
-always @(posedge ts_ack_clr or posedge rtc_timer_clk) begin
-  if (ts_ack_clr)
-    ts_ack <= 1'b0;
-  else
-    if (ts_req_d2 & !ts_req_d3)
-      ts_ack <= 1'b1;
+reg ts_ack_clr_meta, ts_ack_clr_sync;   // gmii->rtc 2-FF synchroniser of the clear level
+always @(posedge rst_rtc or posedge rtc_timer_clk) begin
+  if (rst_rtc) begin
+    ts_ack_clr_meta <= 1'b0;
+    ts_ack_clr_sync <= 1'b0;
+    ts_ack          <= 1'b0;
+  end
+  else begin
+    ts_ack_clr_meta <= ts_ack_clr;        // synchronise the gmii clear level...
+    ts_ack_clr_sync <= ts_ack_clr_meta;   // ...into the rtc domain (2 FF)
+    if (ts_ack_clr_sync)
+      ts_ack <= 1'b0;                      // SYNCHRONOUS clear (was async posedge ts_ack_clr)
+    else if (ts_req_d2 & !ts_req_d3)
+      ts_ack <= 1'b1;                      // set on captured request edge (UNCHANGED condition)
+  end
 end
 
 reg ts_ack_d1, ts_ack_d2, ts_ack_d3;
@@ -404,14 +445,20 @@ always @(posedge rst_gmii or posedge gmii_clk) begin
     ts_ack_clr      <= 1'b0;
   end
   else begin
-    if (ts_ack_d2 & !ts_ack_d3) begin
+    // Timestamp move-across: UNCHANGED -- latch on the gmii ack-edge.
+    if (ts_ack_d2 & !ts_ack_d3)
       tsu_time_stamp <= rtc_time_stamp;
-      ts_ack_clr      <= 1'b1;
-    end
-    else begin
+    else
       tsu_time_stamp <= tsu_time_stamp;
-      ts_ack_clr      <= 1'b0;
-    end
+
+    // Clear-request as a LEVEL 4-phase handshake (was a one-cycle pulse):
+    //   assert on the ack-edge, HOLD until ts_ack has been observed low again
+    //   (ts_ack_d2==0), then drop. This gives the rtc-side synchroniser a stable
+    //   multi-cycle level to capture instead of a single gmii pulse.
+    if (ts_ack_d2 & !ts_ack_d3)
+      ts_ack_clr <= 1'b1;                  // request clear on the ack-edge
+    else if (!ts_ack_d2)
+      ts_ack_clr <= 1'b0;                  // drop once the far side (ts_ack) has cleared
   end
 end
 
