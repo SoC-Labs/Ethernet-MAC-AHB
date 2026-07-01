@@ -367,3 +367,120 @@ async def test_ha_srv_10_lock_reset_on_phase_step(dut):
                                        phc_sec=10, phc_ns=500_000)
     assert result == "phase_step", "Large offset should trigger phase step"
     assert int(dut.locked.value) == 0, "Lock should reset after phase step"
+
+
+# ── Bug HW-servo #4: PI integral anti-windup ─────────────────────────────────
+
+def _to_signed(val, width=32):
+    """Interpret a raw cocotb bus value as a signed two's-complement int."""
+    val = int(val)
+    if val >= (1 << (width - 1)):
+        val -= (1 << width)
+    return val
+
+
+@cocotb.test()
+async def test_ha_srv_11_antiwindup(dut):
+    """HA-SRV-11: PI integral saturates at ±INTEG_MAX under a sustained
+    one-sided sub-threshold offset — it must NOT wrap or sign-flip.
+
+    Bug HW-servo #4: without the anti-windup clamp, `integral` accumulates
+    integral_update every freq_adj cycle without bound. A sustained same-sign
+    sub-threshold offset drives it monotonically until the signed 32-bit
+    accumulator wraps, inverting the frequency correction and corrupting the
+    exported PHC rate. The clamp bounds it to ±INTEG_MAX.
+
+    The standalone TB overrides INTEG_MAX to a small value (2^14) so the
+    accumulator reaches the clamp in ~100 sub-threshold sync cycles rather
+    than the ~1M the 2^28 production default would require.
+    """
+    await setup(dut)
+    await do_reset(dut)
+
+    # Read the clamp the DUT was elaborated with.
+    integ_max = int(dut.u_dut.INTEG_MAX.value)
+    if integ_max >= (1 << 31):
+        integ_max -= (1 << 32)
+    dut._log.info(f"INTEG_MAX (elaborated) = {integ_max}")
+
+    interval_ns = 1000            # 1 us — short cadence for many fast fires
+    dut.sync_interval.value = interval_ns
+
+    # A same-second, positive, sub-threshold offset (+900 ns < 1000 ns
+    # DEFAULT_PHASE_STEP_THRESHOLD) so every cycle is a freq_adj, never a
+    # phase step (offset_large stays false). integral_update = 900 >> 2 = 225.
+    off_ns = 900
+    phc_sec = 5                   # fixed second — never cross a boundary
+
+    # integral_update per cycle; number of cycles to comfortably saturate,
+    # then a margin to prove it HOLDS at the clamp (does not keep climbing /
+    # does not wrap back through zero).
+    per_cycle = off_ns >> 2
+    n_to_sat = (integ_max // per_cycle) + 5
+    n_cycles = n_to_sat + 60      # extra cycles well past saturation
+
+    # Arm the servo at a known PHC time. The sync timer advances its target by
+    # exactly `interval_ns` on each fire, so we walk PHC time forward by the
+    # same step. Starting well inside the second and taking n_cycles steps of
+    # interval_ns keeps us far from the 1e9 boundary (no phase-step from a
+    # seconds mismatch).
+    phc_ns = 100_000
+    await set_ha1588_time(dut, phc_sec, phc_ns + off_ns)
+    await advance_phc_time(dut, phc_sec, phc_ns)
+    dut.enable.value = 1
+    await ClockCycles(dut.clk, 5)
+
+    max_integral_seen = 0
+    freq_adj_count = 0
+
+    for i in range(n_cycles):
+        # The sync target is (arm_ns + (i+1)*interval_ns). Present the matching
+        # HA/PHC pair for THIS fire (HA ahead by a constant +off_ns) and drive
+        # PHC just past the target so sync_fire asserts.
+        target_ns = phc_ns + interval_ns
+        await set_ha1588_time(dut, phc_sec, target_ns + off_ns)  # HA ahead by +900 ns
+        await advance_phc_time(dut, phc_sec, target_ns + 100)
+
+        captured = await wait_for_hw_capture(dut, timeout_cycles=200)
+        assert captured, f"cycle {i}: hw_capture should fire"
+
+        # hw_cap readback = the PHC time the servo snapshotted (target_ns);
+        # HA snapshot is target_ns + off_ns, so offset = +off_ns every cycle.
+        dut.hw_cap_seconds.value = phc_sec
+        dut.hw_cap_nanoseconds.value = target_ns
+        dut.hw_cap_sub_nanoseconds.value = 0
+
+        result = await wait_for_adjust(dut, timeout_cycles=200)
+        assert result == "freq_adj", \
+            f"cycle {i}: expected freq_adj (sub-threshold), got {result}"
+        freq_adj_count += 1
+
+        # Probe the integral the cycle after it updated.
+        await RisingEdge(dut.clk)
+        integ = _to_signed(dut.u_dut.integral.value)
+
+        # It must NEVER exceed the clamp and NEVER wrap negative (sign-flip)
+        # while driving a strictly positive offset.
+        assert integ <= integ_max, \
+            (f"cycle {i}: integral {integ} exceeded INTEG_MAX {integ_max} "
+             f"— anti-windup clamp not holding")
+        assert integ >= 0, \
+            (f"cycle {i}: integral {integ} went NEGATIVE under a sustained "
+             f"POSITIVE offset — accumulator wrapped (windup)")
+        max_integral_seen = max(max_integral_seen, integ)
+
+        # Walk PHC forward by exactly one interval for the next fire.
+        phc_ns = target_ns
+
+    dut._log.info(f"freq_adj cycles={freq_adj_count}, max integral seen="
+                  f"{max_integral_seen}, INTEG_MAX={integ_max}")
+
+    # After running well past saturation, the integral must be pinned AT the
+    # clamp (proves it saturated, not merely that it stayed small).
+    final_integ = _to_signed(dut.u_dut.integral.value)
+    assert final_integ == integ_max, \
+        (f"integral should be saturated at INTEG_MAX {integ_max}, got "
+         f"{final_integ} — clamp did not engage")
+    assert max_integral_seen == integ_max, \
+        f"peak integral {max_integral_seen} never reached the clamp {integ_max}"
+

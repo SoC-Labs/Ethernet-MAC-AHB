@@ -6,7 +6,12 @@
 `timescale 1ns/1ps
 
 module tb_ha1588_servo #(
-    parameter SYS_DATA_W = 32
+    parameter SYS_DATA_W = 32,
+    // Anti-windup clamp — the standalone cocotb TB overrides the RTL default
+    // (2^28, which would need ~1M sub-threshold sync cycles to saturate) with
+    // a small value so the saturation test reaches the clamp in ~100 cycles.
+    // The SoC instantiation (ethmac_subsystem_apb.v) uses the RTL default.
+    parameter signed [SYS_DATA_W-1:0] INTEG_MAX = 32'sd16384   // 2^14 (test-only)
 )(
     // PHC clock domain
     input  logic                    clk,
@@ -44,7 +49,8 @@ module tb_ha1588_servo #(
 );
 
     ha1588_servo #(
-        .SYS_DATA_W (SYS_DATA_W)
+        .SYS_DATA_W (SYS_DATA_W),
+        .INTEG_MAX  (INTEG_MAX)
     ) u_dut (
         .clk                    (clk),
         .resetn                 (resetn),

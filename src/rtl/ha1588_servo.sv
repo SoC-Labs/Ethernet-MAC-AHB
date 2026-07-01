@@ -18,7 +18,14 @@
 
 module ha1588_servo #(
     parameter SYS_DATA_W = 32,
-    parameter [29:0] DEFAULT_PHASE_STEP_THRESHOLD = 30'd1_000  // 1 us
+    parameter [29:0] DEFAULT_PHASE_STEP_THRESHOLD = 30'd1_000,  // 1 us
+    // Anti-windup clamp for the PI integral accumulator (bug HW-servo #4).
+    // Mirrors the firmware precedent (ptp_slave.c servo_on_sync: the I term is
+    // ±clamped to integ_clamp_ns). 2^28 leaves ample headroom for a signed
+    // 32-bit fractional-increment correction while preventing the accumulator
+    // from wrapping under a sustained one-sided sub-threshold offset (which
+    // would invert the exported PHC frequency trim).
+    parameter signed [SYS_DATA_W-1:0] INTEG_MAX = 32'sd268_435_456  // 2^28
 )(
     // --------------------------------------------------------------------------
     // PHC Clock Domain
@@ -301,6 +308,21 @@ module ha1588_servo #(
     assign integral_update = offset_ns_ext >>> 2;
     assign correction      = proportional + integral;
 
+    // Anti-windup (bug HW-servo #4): clamp the integral accumulator to
+    // ±INTEG_MAX. Without this, a sustained one-sided sub-threshold offset
+    // drives `integral` monotonically until the signed 32-bit accumulator
+    // wraps, which INVERTS the frequency correction and corrupts the exported
+    // PHC rate (phc_clock_core latches hw_adj_ns_incr_frac unclamped). This
+    // combinational clamp mirrors the firmware precedent (ptp_slave.c:534-540:
+    // the I term is ±clamped to integ_clamp_ns). Combinational only — the FSM,
+    // CDC handshake and interval timer are untouched.
+    logic signed [SYS_DATA_W-1:0] integral_sum;
+    logic signed [SYS_DATA_W-1:0] integral_next;
+    assign integral_sum  = integral + integral_update;
+    assign integral_next = (integral_sum >  INTEG_MAX) ?  INTEG_MAX :
+                           (integral_sum < -INTEG_MAX) ? -INTEG_MAX :
+                                                          integral_sum;
+
     // Phase step needed when offset exceeds threshold
     logic offset_large;
     assign offset_large = (offset_sec != '0) ||
@@ -385,8 +407,11 @@ module ha1588_servo #(
                         lock_counter       <= 3'b0;
                         locked             <= 1'b0;
                     end else begin
-                        // Frequency correction via PI controller
-                        integral           <= integral + integral_update;
+                        // Frequency correction via PI controller.
+                        // Anti-windup: accumulate through the ±INTEG_MAX clamp
+                        // (integral_next) so a sustained one-sided offset
+                        // saturates instead of wrapping (bug HW-servo #4).
+                        integral           <= integral_next;
                         ns_incr_frac_accum <= ns_incr_frac_accum - correction;
 
                         hw_adj_valid        <= 1'b1;
