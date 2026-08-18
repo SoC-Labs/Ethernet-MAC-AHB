@@ -501,7 +501,7 @@ module eth_rx_cksum #(
   end
 
   wire [FIFO_AW:0] occ_pclk = wptr_bin_pclk - rptr_bin_pclk;
-  wire fifo_empty_pclk = (occ_pclk == 0);
+  wire fifo_empty_pclk = (occ_pclk == {(FIFO_AW+1){1'b0}});
   wire fifo_full_pclk  = (occ_pclk == SNAPSHOT_FIFO_DEPTH[FIFO_AW:0]);
 
   // Synchronise the writer's push toggle (3 FFs: 2 for metastability + 1 to
